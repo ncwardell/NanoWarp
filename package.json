@@ -1,0 +1,16 @@
+{
+  "name": "nanowarp",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/fs-extra": "^11.0.4"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "csv-parse": "^5.5.6",
+    "fs-extra": "^11.2.0"
+  }
+}
