@@ -21,8 +21,8 @@ const execute = async (_path: string, _request: any, _dataPath: string, _Databas
         console.log( debugText)
         return response;
     } catch (error) {
-        console.log(error)
-        let debugText = setColor(' Failed:', 'red') + ' ' + setColor('GET', 'blue') + ' "' + setColor(_path, 'cyan') + '"\n';
+        //console.log(error)
+        let debugText = setColor(' Failed Request:', 'red') + ' ' + setColor('GET', 'blue') + ' "' + setColor(_path, 'cyan') + '"\n';
         console.log( debugText)
         return new Response('Request Not Found', { status: 404 });
     }

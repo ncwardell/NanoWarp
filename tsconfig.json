@@ -8,6 +8,11 @@
     "jsx": "react-jsx",
     "allowJs": true,
 
+    "baseUrl": ".",  // Project root as the base
+    "paths": {
+      "/src/*": ["src/*"]  // Map /src/* to src/*
+    },
+    
     // Bundler mode
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
