@@ -199,4 +199,4 @@ export class NanoWarp {
 }
 
 // Export types for user consumption
-export type { NanoWarpConfig, RateLimitConfig, CacheConfig, TimeoutConfig, OpenAPIConfig } from './types/config';
+export type { NanoWarpConfig, EndpointRateLimitConfig, EndpointSchema, CacheConfig, TimeoutConfig, OpenAPIConfig } from './types/config';

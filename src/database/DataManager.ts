@@ -52,6 +52,49 @@ export class DataManager {
         }
     };
 
+    /**
+     * Generate a blank OpenAPI schema template
+     * Useful for defining endpoint schemas
+     *
+     * @param type - Schema type (object, array, string, number, boolean)
+     * @param properties - Object properties (for object type)
+     * @param items - Array item schema (for array type)
+     * @returns OpenAPI schema object
+     */
+    static createSchema(
+        type: 'object' | 'array' | 'string' | 'number' | 'boolean' | 'integer',
+        options?: {
+            properties?: Record<string, any>;
+            required?: string[];
+            items?: any;
+            description?: string;
+            example?: any;
+        }
+    ): any {
+        const schema: any = { type };
+
+        if (options?.description) {
+            schema.description = options.description;
+        }
+
+        if (type === 'object' && options?.properties) {
+            schema.properties = options.properties;
+            if (options.required) {
+                schema.required = options.required;
+            }
+        }
+
+        if (type === 'array' && options?.items) {
+            schema.items = options.items;
+        }
+
+        if (options?.example) {
+            schema.example = options.example;
+        }
+
+        return schema;
+    }
+
     //Initialize Storage
     async initialize() {
         //Makes Sure Root Directory and database.lock File Exists

@@ -1,7 +1,8 @@
 import type { DataManager } from "../../database/DataManager";
-import type { NanoWarpConfig } from "../../types/config";
+import type { NanoWarpConfig, EndpointRateLimitConfig } from "../../types/config";
 import { setColor } from "../../helpers/colors";
 import { watch } from "fs";
+import { checkRateLimit } from "../rate-limiter";
 
 //Module Cache for hot-reloading with LRU eviction
 const moduleCache = new Map<string, any>();
@@ -128,6 +129,19 @@ const execute = async (_path: string, _request: any, _dataPath: string, _Databas
         }
 
         const module = moduleCache.get(fullPath);
+
+        // Check rate limiting (if configured in endpoint)
+        const rateLimitConfig: EndpointRateLimitConfig | undefined = module.rateLimit;
+        const clientIP = _request.headers.get('x-forwarded-for') ||
+                        _request.headers.get('x-real-ip') ||
+                        'unknown';
+
+        if (!checkRateLimit(clientIP, `/${_path}`, rateLimitConfig)) {
+            if (_config.logging) {
+                console.log(setColor(`Rate limit exceeded for ${clientIP} on DELETE /${_path}`, 'red'));
+            }
+            return new Response('Too Many Requests', { status: 429 });
+        }
 
         // Execute with configurable timeout
         const response = await Promise.race([

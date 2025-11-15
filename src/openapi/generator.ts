@@ -6,7 +6,7 @@
 
 import { readdir } from "node:fs/promises";
 import path from "path";
-import type { NanoWarpConfig } from "../types/config";
+import type { NanoWarpConfig, EndpointSchema } from "../types/config";
 
 export interface OpenAPISpec {
     openapi: string;
@@ -249,6 +249,76 @@ function generateRequestBody(method: string): any {
 }
 
 /**
+ * Load endpoint schema from module
+ */
+async function loadEndpointSchema(
+    fullPath: string,
+    method: string,
+    apiPath: string
+): Promise<any> {
+    try {
+        // Try to load the endpoint module
+        const module = await import(fullPath);
+        const endpointSchema: EndpointSchema | undefined = module.schema;
+
+        if (endpointSchema) {
+            // Use endpoint-defined schema
+            const operation: any = {
+                summary: endpointSchema.summary || `${method} ${apiPath}`,
+                description: endpointSchema.description || `Endpoint handler for ${method} ${apiPath}`,
+                tags: endpointSchema.tags || [apiPath.split('/')[1] || 'default'],
+                parameters: endpointSchema.parameters || [],
+                responses: endpointSchema.responses || generateDefaultResponses(method),
+            };
+
+            // Add request body if defined
+            if (endpointSchema.requestBody) {
+                operation.requestBody = endpointSchema.requestBody;
+            } else {
+                // Add default request body for POST/PUT/PATCH
+                const defaultRequestBody = generateRequestBody(method);
+                if (defaultRequestBody) {
+                    operation.requestBody = defaultRequestBody;
+                }
+            }
+
+            // Add security if defined, otherwise use default
+            operation.security = endpointSchema.security || [{ apiKey: [] }];
+
+            return operation;
+        } else {
+            // No schema defined, use defaults
+            return generateDefaultOperation(method, apiPath);
+        }
+    } catch (error) {
+        // Module not found or error loading, use defaults
+        return generateDefaultOperation(method, apiPath);
+    }
+}
+
+/**
+ * Generate default operation when no schema is defined
+ */
+function generateDefaultOperation(method: string, apiPath: string): any {
+    const operation: any = {
+        summary: `${method} ${apiPath}`,
+        description: `Endpoint handler for ${method} ${apiPath}`,
+        tags: [apiPath.split('/')[1] || 'default'],
+        parameters: [],
+        responses: generateDefaultResponses(method),
+        security: [{ apiKey: [] }]
+    };
+
+    // Add request body for POST/PUT/PATCH
+    const requestBody = generateRequestBody(method);
+    if (requestBody) {
+        operation.requestBody = requestBody;
+    }
+
+    return operation;
+}
+
+/**
  * Generate OpenAPI specification from scanned endpoints
  */
 export async function generateOpenAPISpec(
@@ -271,25 +341,9 @@ export async function generateOpenAPISpec(
                 paths[apiPath] = {};
             }
 
-            // Add operation for this method
-            paths[apiPath][method.toLowerCase()] = {
-                summary: `${method} ${apiPath}`,
-                description: `Endpoint handler for ${method} ${apiPath}`,
-                tags: [apiPath.split('/')[1] || 'default'],
-                parameters: [],
-                responses: generateDefaultResponses(method)
-            };
-
-            // Add request body for POST/PUT/PATCH
-            const requestBody = generateRequestBody(method);
-            if (requestBody) {
-                paths[apiPath][method.toLowerCase()].requestBody = requestBody;
-            }
-
-            // Add security requirement if API keys are configured
-            paths[apiPath][method.toLowerCase()].security = [
-                { apiKey: [] }
-            ];
+            // Load schema from endpoint module or use defaults
+            const operation = await loadEndpointSchema(endpoint.fullPath, method, apiPath);
+            paths[apiPath][method.toLowerCase()] = operation;
         }
     }
 
