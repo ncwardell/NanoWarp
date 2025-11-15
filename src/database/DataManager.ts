@@ -52,10 +52,6 @@ export class DataManager {
     async initialize() {
         //Makes Sure Root Directory and database.lock File Exists
         await this.DataTree.Initialize();
-
-        //Create default health check endpoint if it doesn't exist
-        await this.createDefaultHealthEndpoint();
-
         //Loads & Reads The Database File
         let databaseFile = await Bun.file(this.DataTree.DataBaseFile).json();
         //If Database File is Not Empty
@@ -66,37 +62,6 @@ export class DataManager {
         }
         console.log(setColor('| Database Initialized |', 'magenta') + '\n');
     };
-
-    //Create default health check endpoint
-    async createDefaultHealthEndpoint() {
-        const healthEndpointPath = `${this.DataTree.RootDirectory}/Endpoints/GET/health.ts`;
-
-        // Only create if it doesn't exist (backward compatible)
-        if (!(await fs.pathExists(healthEndpointPath))) {
-            const healthEndpointContent = `// Auto-generated health check endpoint
-import type { DataManager } from "../../../src/database/DataManager";
-
-export const execute = async (path: string, request: Request, Database: DataManager) => {
-    const health = {
-        status: "healthy",
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-        database: {
-            root: Database.DataTree.RootDirectory,
-            initialized: true
-        }
-    };
-
-    return new Response(JSON.stringify(health, null, 2), {
-        status: 200,
-        headers: { "Content-Type": "application/json" }
-    });
-};
-`;
-            await Bun.write(healthEndpointPath, healthEndpointContent);
-            console.log(setColor(' ✓ Created default health endpoint: /health', 'green'));
-        }
-    }
 
     async retrieveData(_path: string) {
         console.log(setColor(' • Retrieving Data', 'yellow'));
