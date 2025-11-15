@@ -7,16 +7,18 @@ This directory contains a fully functional example server demonstrating NanoWarp
 ```
 examples/
 ├── Database/              # Database directory (contains both data and endpoints)
-│   ├── database.lock      # Sample database with users and products
-│   ├── api-keys/          # API key storage
-│   │   └── demo-key.json  # Example API key
+│   ├── database.lock      # Auto-generated directory structure cache
+│   ├── apikeys.json       # API key authentication configuration
 │   └── Endpoints/         # API endpoint handlers
+│       ├── DELETE/        # DELETE method endpoints
 │       ├── GET/
 │       │   ├── health.ts  # Health check endpoint (with rate limiting)
 │       │   ├── ping.ts    # Simple ping endpoint (no rate limiting)
 │       │   └── info.ts    # Server information endpoint
-│       └── POST/
-│           └── echo.ts    # Echo endpoint (stricter rate limiting)
+│       ├── PATCH/         # PATCH method endpoints
+│       ├── POST/
+│       │   └── echo.ts    # Echo endpoint (stricter rate limiting)
+│       └── PUT/           # PUT method endpoints
 ├── server.ts              # Main server configuration
 └── README.md              # This file
 ```
@@ -25,22 +27,27 @@ examples/
 
 ### Running the Example Server
 
-From the project root, run:
+From the project root:
 
+**Using Bun (recommended):**
 ```bash
+bun run example
+# or
 npm run example
 ```
 
-Or using Bun:
-
+**Using Node.js:**
 ```bash
-bun run example
+npm run example:node
 ```
 
-Or directly from the examples folder:
-
+**Or directly from the examples folder:**
 ```bash
+# With Bun
 bun server.ts
+
+# With Node.js (requires tsx)
+npx tsx server.ts
 ```
 
 The server will start on **http://localhost:3000** with Swagger documentation enabled.
@@ -131,19 +138,20 @@ This example demonstrates:
 
 ### ✅ Rate Limiting
 - Per-endpoint configuration
+- Disabled by default if not specified
 - Different limits for different endpoint types
 - Can be enabled/disabled per endpoint
 - Examples:
-  - `/ping`: No rate limiting (public)
-  - `/health`: Generous limits (100 tokens)
-  - `/info`: Moderate limits (50 tokens)
-  - `/echo`: Stricter limits for POST (20 tokens)
+  - `/ping`: Explicitly disabled (public)
+  - `/health`: Generous limits (100 tokens, 50/sec refill)
+  - `/info`: Moderate limits (50 tokens, 10/sec refill)
+  - `/echo`: Stricter limits for POST (20 tokens, 5/sec refill)
 
 ### ✅ Database Structure
 - Organized in `Database/` folder
-- Includes sample data (users, products)
-- API keys stored in `Database/api-keys/`
-- Database lock file for data persistence
+- API keys configured in `Database/apikeys.json`
+- Database lock file for directory structure caching
+- Ready to add your own data files (JSON, etc.)
 
 ### ✅ File-Based Routing
 - Endpoints organized by HTTP method
@@ -155,14 +163,27 @@ This example demonstrates:
 ### Adding New Endpoints
 
 1. Create a new file in `Database/Endpoints/[METHOD]/[name].ts`
-2. Export `execute`, `schema`, and optionally `rateLimit`
-3. The endpoint automatically becomes available
+2. Export the required `execute` function
+3. Optionally export `rateLimit` and/or `schema` for additional features
+4. The endpoint automatically becomes available
 
-Example:
+**Minimal Example:**
+```typescript
+// Database/Endpoints/GET/custom.ts
+export const execute = async (path: string, request: Request, Database: any) => {
+    return new Response(JSON.stringify({ message: 'Hello!' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+    });
+};
+```
+
+**Full Example (with rate limiting and OpenAPI schema):**
 ```typescript
 // Database/Endpoints/GET/custom.ts
 import type { EndpointRateLimitConfig, EndpointSchema } from 'nanowarp';
 
+// Optional: Configure rate limiting (disabled by default)
 export const rateLimit: EndpointRateLimitConfig = {
     enabled: true,
     maxTokens: 100,
@@ -170,6 +191,7 @@ export const rateLimit: EndpointRateLimitConfig = {
     refillInterval: 1000,
 };
 
+// Optional: Define OpenAPI/Swagger schema (uses defaults if not provided)
 export const schema: EndpointSchema = {
     summary: 'Custom endpoint',
     description: 'Your custom endpoint',
@@ -186,6 +208,7 @@ export const schema: EndpointSchema = {
     },
 };
 
+// Required: Execute function
 export const execute = async (path: string, request: Request, Database: any) => {
     return new Response(JSON.stringify({ message: 'Hello!' }), {
         status: 200,
@@ -205,10 +228,11 @@ Edit `server.ts` to customize:
 
 ## 📝 Learning Resources
 
-- **Rate Limiting**: See how different endpoints use different rate limits
-- **OpenAPI Schemas**: Each endpoint shows proper schema definition
+- **Rate Limiting**: See how different endpoints configure rate limits (optional, disabled by default)
+- **OpenAPI Schemas**: Each endpoint shows proper schema definition (optional, uses defaults if not provided)
 - **Error Handling**: The `/echo` endpoint demonstrates error handling
-- **Database Usage**: Check the `database.lock` file for data structure examples
+- **Database Usage**: The `database.lock` file stores directory structure cache
+- **Minimal Endpoints**: The `/ping` endpoint shows the simplest possible implementation
 
 ## 🎯 Use Cases
 
@@ -223,8 +247,10 @@ This example is perfect for:
 
 1. **Hot Reload**: Changes to endpoint files apply immediately—no restart needed
 2. **TypeScript**: Use the exported types for better IDE support
-3. **Database**: The database.lock file demonstrates the expected JSON structure
-4. **API Keys**: Add more keys in `Database/api-keys/` following the demo format
-5. **Testing**: Use Swagger UI at `/docs` for interactive testing
+3. **Optional Exports**: Only `execute` is required; `rateLimit` and `schema` are optional
+4. **Rate Limiting**: Disabled by default; explicitly enable it per endpoint if needed
+5. **OpenAPI Schema**: Auto-generated if not provided; customize for better documentation
+6. **API Keys**: Configure in `Database/apikeys.json` with expiration dates
+7. **Testing**: Use Swagger UI at `/docs` for interactive testing
 
 Happy coding with NanoWarp! 🚀

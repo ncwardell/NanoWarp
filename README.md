@@ -98,6 +98,17 @@ await server.start();
 console.log('🚀 Server running on http://localhost:3000');
 ```
 
+**Run with Bun (recommended):**
+```bash
+bun server.ts
+```
+
+**Run with Node.js:**
+```bash
+npx tsx server.ts
+# or after building: node dist/server.js
+```
+
 ### 2. Create Your First Endpoint
 
 ```bash
@@ -155,9 +166,10 @@ data/Endpoints/
 
 ### Endpoint Structure
 
-Every endpoint must export an `execute` function with the following signature:
+Every endpoint must export an `execute` function. Optionally, you can export `rateLimit` and `schema` configurations:
 
 ```typescript
+// Required: Execute function
 export const execute = async (
     path: string,        // The request path (e.g., "users/profile")
     request: Request,    // Web Standards Request object
@@ -168,6 +180,22 @@ export const execute = async (
         status: 200,
         headers: { 'Content-Type': 'text/plain' }
     });
+};
+
+// Optional: Rate limiting configuration (disabled by default)
+export const rateLimit = {
+    enabled: true,
+    maxTokens: 100,
+    refillRate: 10,
+    refillInterval: 1000,
+};
+
+// Optional: OpenAPI schema (auto-generated defaults if not provided)
+export const schema = {
+    summary: 'Endpoint description',
+    description: 'Detailed endpoint documentation',
+    tags: ['API'],
+    // ... other OpenAPI schema properties
 };
 ```
 
@@ -202,6 +230,7 @@ await Database.deleteData('./data/users.json');
 `data/Endpoints/GET/todos.ts`:
 
 ```typescript
+// Only the execute function is required
 export const execute = async (path, request, Database) => {
     try {
         const todos = await Database.retrieveData('./data/todos.json') || [];
@@ -342,10 +371,23 @@ curl http://localhost:3000/health
 
 Built-in token bucket algorithm protects against abuse:
 
+- **Disabled by default** - Enable per endpoint as needed
+- **Per-endpoint configuration** - Different limits for different endpoints
 - **100 tokens per IP** (configurable)
-- **Refills at 10 tokens/second**
+- **Refills at 10 tokens/second** (configurable)
 - **Automatic cleanup** of inactive IPs
 - **429 Too Many Requests** response when limit exceeded
+
+Enable rate limiting by exporting a `rateLimit` configuration in your endpoint:
+
+```typescript
+export const rateLimit = {
+    enabled: true,
+    maxTokens: 100,
+    refillRate: 10,
+    refillInterval: 1000,
+};
+```
 
 ---
 

@@ -9,12 +9,12 @@ import { setColor } from '../helpers/colors';
 // Global rate limiter state (shared across all endpoints)
 const rateLimiter = new Map<string, { tokens: number; lastRefill: number }>();
 
-// Default rate limiting config
+// Default rate limiting config (disabled by default if not specified)
 const DEFAULT_RATE_LIMIT: Required<EndpointRateLimitConfig> = {
     maxTokens: 100,
     refillRate: 10,
     refillInterval: 1000,
-    enabled: true,
+    enabled: false,
 };
 
 /**
