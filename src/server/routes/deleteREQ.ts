@@ -3,18 +3,21 @@ import type { NanoWarpConfig, EndpointRateLimitConfig } from "../../types/config
 import { setColor } from "../../helpers/colors";
 import { watch } from "fs";
 import { checkRateLimit } from "../rate-limiter";
+import { LRUCache } from "../../helpers/LRUCache";
 
-//Module Cache for hot-reloading with LRU eviction
-const moduleCache = new Map<string, any>();
+//Module Cache for hot-reloading with LRU eviction (O(1) operations)
+const moduleCache = new LRUCache<string, any>(100, (key, _value) => {
+    // Eviction callback - close watcher when module is evicted
+    console.log(setColor(` ♻ Evicting LRU module: ${key}`, 'yellow'));
+    closeWatcher(key);
+    moduleVersions.delete(key);
+});
 const moduleVersions = new Map<string, number>();
 const watchers = new Map<string, any>();
-const moduleLastAccess = new Map<string, number>();
-let MAX_CACHE_SIZE = 100; // Will be set from config
 
 //Clear specific module from cache (for hot-reloading)
 function clearModuleCache(fullPath: string) {
     moduleCache.delete(fullPath);
-    moduleLastAccess.delete(fullPath);
     // Increment version to force reimport
     const currentVersion = moduleVersions.get(fullPath) || 0;
     moduleVersions.set(fullPath, currentVersion + 1);
@@ -33,29 +36,6 @@ function closeWatcher(fullPath: string) {
     }
 }
 
-//Evict least recently used module
-function evictLRU() {
-    if (moduleCache.size < MAX_CACHE_SIZE) return;
-
-    let oldestPath: string | null = null;
-    let oldestTime = Date.now();
-
-    for (const [path, lastAccess] of moduleLastAccess.entries()) {
-        if (lastAccess < oldestTime) {
-            oldestTime = lastAccess;
-            oldestPath = path;
-        }
-    }
-
-    if (oldestPath) {
-        console.log(setColor(` ♻ Evicting LRU module: ${oldestPath}`, 'yellow'));
-        closeWatcher(oldestPath);
-        moduleCache.delete(oldestPath);
-        moduleVersions.delete(oldestPath);
-        moduleLastAccess.delete(oldestPath);
-    }
-}
-
 //Clear all modules from cache
 export function clearAllModuleCache() {
     // Close all watchers first (graceful cleanup)
@@ -68,19 +48,18 @@ export function clearAllModuleCache() {
     }
 
     watchers.clear();
-    moduleCache.clear();
+    moduleCache.clear(false); // Don't call eviction callback on manual clear
     moduleVersions.clear();
-    moduleLastAccess.clear();
     console.log(setColor('Module cache cleared', 'yellow'));
 }
 
 export const deleteReq = async (_pathMap: string[], _request: any, _Database: DataManager, _config: Required<NanoWarpConfig>): Promise<Response> => {
 
-    // Update cache size from config
-    MAX_CACHE_SIZE = _config.cache.moduleCacheSize!;
+    // Update cache capacity from config
+    moduleCache.setCapacity(_config.cache.moduleCacheSize!);
 
     //Execute Endpoint
-    let path = _pathMap.map(String).join('/');
+    let path = _pathMap.join('/');
     return await execute(path, _request, _Database.DataTree.RootDirectory, _Database, _config);
 }
 
@@ -97,17 +76,16 @@ const execute = async (_path: string, _request: any, _dataPath: string, _Databas
 
     try {
         // Load module with caching and version-based hot reload
-        if (!moduleCache.has(fullPath)) {
-            // Evict LRU module if cache is full
-            evictLRU();
+        let module = moduleCache.get(fullPath); // Also marks as recently used
 
+        if (!module) {
+            // Module not in cache - import it (LRU cache auto-evicts if needed)
             const version = moduleVersions.get(fullPath) || 0;
             const importPath = version > 0 ? `${fullPath}?v=${version}` : fullPath;
 
-            // Blue-green deployment: Load new module before clearing old
-            const module = await import(importPath);
+            // Import module
+            module = await import(importPath);
             moduleCache.set(fullPath, module);
-            moduleLastAccess.set(fullPath, Date.now());
 
             // Watch file for changes (hot-reload) - only set up once
             if (!watchers.has(fullPath)) {
@@ -123,12 +101,7 @@ const execute = async (_path: string, _request: any, _dataPath: string, _Databas
                     // File watching failed, continue without it
                 }
             }
-        } else {
-            // Update last access time for LRU tracking
-            moduleLastAccess.set(fullPath, Date.now());
         }
-
-        const module = moduleCache.get(fullPath);
 
         // Check rate limiting (if configured in endpoint)
         const rateLimitConfig: EndpointRateLimitConfig | undefined = module.rateLimit;
