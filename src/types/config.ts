@@ -195,7 +195,7 @@ export interface NanoWarpConfig {
 
     /**
      * Path to the data directory
-     * @default './data'
+     * @default './Database'
      */
     dataPath?: string;
 
@@ -226,7 +226,7 @@ export interface NanoWarpConfig {
  */
 export const DEFAULT_CONFIG: Required<NanoWarpConfig> = {
     port: 3000,
-    dataPath: './data',
+    dataPath: './Database',
     cache: {
         apiKeyTTL: 60000,
         moduleCacheSize: 100,

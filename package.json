@@ -17,7 +17,7 @@
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "npm run build",
-    "dev": "bun examples/demo.ts"
+    "example": "bun examples/server.ts"
   },
   "files": [
     "dist",
