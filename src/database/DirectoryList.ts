@@ -66,11 +66,11 @@ export class DirectoryList {
         }
     }
 
-    //Builds Directory Map from Root Directory
-    async buildDirectoryMap(_path: string): Promise<DirectoryEntry> {
-        //Starts To Map Directory From Here
-        const rootDirectory = fs.statSync(_path);
-        
+    //Builds Directory Map from Root Directory (with optional lazy loading)
+    async buildDirectoryMap(_path: string, lazy: boolean = false): Promise<DirectoryEntry> {
+        //Starts To Map Directory From Here (async version)
+        const rootDirectory = await fs.stat(_path);
+
         //Creates New Entry Starting From rootDirectory
         const entry: DirectoryEntry = {
             Type: rootDirectory.isFile() ? "file" : "directory",
@@ -80,15 +80,42 @@ export class DirectoryList {
         //Scours Through Directory and Adds Descendants
         if (entry.Type === "directory") {
             entry.Descendants = new Map();
-            const files = fs.readdirSync(_path);
-            for (const file of files) {
-                const filePath = `${entry.Path}/${file}`;
-                entry.Descendants.set(file, await this.buildDirectoryMap(filePath));
+
+            // If lazy loading is enabled, don't scan descendants
+            if (!lazy) {
+                const files = await fs.readdir(_path);
+                for (const file of files) {
+                    const filePath = `${entry.Path}/${file}`;
+                    entry.Descendants.set(file, await this.buildDirectoryMap(filePath, lazy));
+                }
             }
         }
-        
+
         //Returns Full Entry
         return entry;
+    }
+
+    //Load descendants on-demand (for lazy loading)
+    async loadDescendants(_entry: DirectoryEntry): Promise<void> {
+        if (_entry.Type === "directory" && _entry.Descendants && _entry.Descendants.size === 0) {
+            try {
+                const files = await fs.readdir(_entry.Path);
+                for (const file of files) {
+                    const filePath = `${_entry.Path}/${file}`;
+                    const stat = await fs.stat(filePath);
+                    const childEntry: DirectoryEntry = {
+                        Type: stat.isFile() ? "file" : "directory",
+                        Path: filePath
+                    };
+                    if (childEntry.Type === "directory") {
+                        childEntry.Descendants = new Map(); // Empty map for lazy loading
+                    }
+                    _entry.Descendants.set(file, childEntry);
+                }
+            } catch (error) {
+                console.error(`Error loading descendants for ${_entry.Path}:`, error);
+            }
+        }
     }
 }
 
