@@ -1,12 +1,57 @@
 {
   "name": "nanowarp",
-  "module": "index.ts",
+  "version": "1.0.0",
+  "description": "Lightning-fast API framework built on Bun with hot-swappable file-based endpoints",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "dev": "bun examples/demo.ts"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "api",
+    "framework",
+    "bun",
+    "hot-reload",
+    "file-based",
+    "endpoints",
+    "lightweight",
+    "microservice",
+    "rest-api",
+    "typescript"
+  ],
+  "author": "ncwardell",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ncwardell/NanoWarp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ncwardell/NanoWarp/issues"
+  },
+  "homepage": "https://github.com/ncwardell/NanoWarp#readme",
+  "engines": {
+    "bun": ">=1.0.0"
+  },
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/fs-extra": "^11.0.4"
-  },
-  "peerDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^24.10.1",
+    "bun-types": "^1.3.2",
     "typescript": "^5.0.0"
   },
   "dependencies": {

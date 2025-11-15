@@ -24,19 +24,33 @@ export const execute = async (path, request, Database) => {
 - **Zero Config** - No database setup, no migrations, just files
 - **Production Ready** - Error boundaries, graceful shutdown, request timeouts
 
-## Quick Start
+## Installation
 
 ```bash
-bun install
-bun index.ts
+npm install nanowarp
+```
+
+Or with Bun:
+
+```bash
+bun add nanowarp
+```
+
+## Quick Start
+
+```typescript
+import { NanoWarp } from "nanowarp";
+
+const server = new NanoWarp();
+await server.start();
 ```
 
 Server runs on port 3000. Change port or data path:
 
 ```typescript
-import { NanoWarp } from "./src";
-const nw = new NanoWarp(8080, './my-data');
-await nw.start();
+import { NanoWarp } from "nanowarp";
+const server = new NanoWarp(8080, './my-data');
+await server.start();
 ```
 
 ## Creating Endpoints

@@ -1,4 +1,4 @@
-import { NanoWarp } from "./src";
+import { NanoWarp } from "../src";
 
 let nw = new NanoWarp();
 await nw.start();
