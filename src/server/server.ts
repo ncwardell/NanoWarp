@@ -1,8 +1,9 @@
-import { serve } from 'bun';
 import { postReq } from './routes/postREQ';
 import { getReq } from './routes/getREQ';
 import { setColor } from '../helpers/colors';
 import { DataManager } from "../database/DataManager";
+import { createServer, type ServerInstance } from '../runtime/server';
+import { fileExists, readJsonFile } from '../runtime/file';
 
 // Server Class
 export class Server {
@@ -20,7 +21,7 @@ export class Server {
     private readonly API_KEY_CACHE_TTL = 60000; // 60 seconds
 
     // Graceful shutdown
-    private server: any = null;
+    private server: ServerInstance | null = null;
     private inflightRequests = 0;
     private isShuttingDown = false;
 
@@ -46,9 +47,9 @@ export class Server {
         }
 
         // Load from file
-        const file = Bun.file(`${this.DataManager.DataTree.RootDirectory}/apikeys.json`);
-        if (await file.exists()) {
-            const data = await file.json();
+        const filePath = `${this.DataManager.DataTree.RootDirectory}/apikeys.json`;
+        if (await fileExists(filePath)) {
+            const data = await readJsonFile(filePath);
             this.Keys = data.keys || {};
             this.Whitelist = data.whitelist || [];
 
@@ -122,7 +123,7 @@ export class Server {
 
     async start() {
         let that = this;
-        this.server = serve({
+        this.server = createServer({
             port: this.Port,
             fetch: async (request) => {
                 // Reject new requests during shutdown

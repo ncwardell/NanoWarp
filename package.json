@@ -1,7 +1,7 @@
 {
   "name": "nanowarp",
   "version": "1.0.0",
-  "description": "Lightning-fast API framework built on Bun with hot-swappable file-based endpoints",
+  "description": "Lightning-fast API framework with hot-swappable file-based endpoints (works with Bun and Node.js)",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -26,13 +26,16 @@
     "api",
     "framework",
     "bun",
+    "node",
+    "nodejs",
     "hot-reload",
     "file-based",
     "endpoints",
     "lightweight",
     "microservice",
     "rest-api",
-    "typescript"
+    "typescript",
+    "cross-runtime"
   ],
   "author": "ncwardell",
   "license": "MIT",
@@ -45,6 +48,7 @@
   },
   "homepage": "https://github.com/ncwardell/NanoWarp#readme",
   "engines": {
+    "node": ">=18.0.0",
     "bun": ">=1.0.0"
   },
   "devDependencies": {

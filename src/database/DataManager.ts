@@ -5,6 +5,7 @@ import { setColor } from '../helpers/colors';
 import { DirectoryList } from './DirectoryList';
 import type { DirectoryEntry } from './DirectoryList';
 import { replacer, reviver } from '../helpers/mappingString';
+import { writeFileRuntime, readJsonFile, readFileAsArrayBuffer, fileExists } from '../runtime/file';
 
 //Used To Manage The Storage of the DataManager
 class ManagedStorage {
@@ -20,7 +21,7 @@ class ManagedStorage {
         this.Initialize = async () => {
             //Ensure Root Directory & Config File Exist
             if ((await fs.pathExists(this.RootDirectory)) == false) { await fs.ensureDir(this.RootDirectory); }
-            if ((await fs.pathExists(this.DataBaseFile)) == false) { await Bun.write(this.DataBaseFile, JSON.stringify({})); }
+            if ((await fs.pathExists(this.DataBaseFile)) == false) { await writeFileRuntime(this.DataBaseFile, JSON.stringify({})); }
             //Ensure Paths For Server Endpoints
             if ((await fs.pathExists(this.RootDirectory + '/Endpoints')) == false) { await fs.ensureDir(this.RootDirectory + '/Endpoints'); }
             if ((await fs.pathExists(this.RootDirectory + '/Endpoints/GET')) == false) { await fs.ensureDir(this.RootDirectory + '/Endpoints/GET'); }
@@ -53,7 +54,7 @@ export class DataManager {
         //Makes Sure Root Directory and database.lock File Exists
         await this.DataTree.Initialize();
         //Loads & Reads The Database File
-        let databaseFile = await Bun.file(this.DataTree.DataBaseFile).json();
+        let databaseFile = await readJsonFile(this.DataTree.DataBaseFile);
         //If Database File is Not Empty
         if (JSON.stringify(databaseFile) !== '{}') {
             await this.loadDataBase(this.DataTree.DataBaseFile);
@@ -72,10 +73,10 @@ export class DataManager {
                 return await readdir(_path);
             } else if ((_path.endsWith('.json')) || (_path.endsWith('.lock'))) {
                 console.log(setColor(` ➛ Returning JSON (${_path})`, 'orange'));
-                return await Bun.file(_path).json();
+                return await readJsonFile(_path);
             } else {
                 console.log(setColor(` ➛ Returning File (${_path})`, 'orange'));
-                return await Bun.file(_path).arrayBuffer();
+                return await readFileAsArrayBuffer(_path);
             }
         } else {
             console.log(setColor(` ➛ Retrieving Data Failed (${_path})`, 'red'));
@@ -109,7 +110,7 @@ export class DataManager {
         const writePromise = (async () => {
             try {
                 // Write to temporary file
-                await Bun.write(tempPath, _data);
+                await writeFileRuntime(tempPath, _data);
 
                 // Atomic rename (POSIX guarantees atomicity)
                 await fs.rename(tempPath, _path);
