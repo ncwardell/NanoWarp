@@ -5,7 +5,7 @@
  * Returns: Echoes back the request body with additional metadata
  */
 
-import type { EndpointRateLimitConfig, EndpointSchema } from 'nanowarp';
+import type { EndpointRateLimitConfig, EndpointSchema } from '../../../../src'; //Should Be NanoWarp
 
 // Configure stricter rate limiting for POST endpoints
 export const rateLimit: EndpointRateLimitConfig = {

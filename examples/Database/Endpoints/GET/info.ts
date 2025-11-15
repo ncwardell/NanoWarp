@@ -5,7 +5,7 @@
  * Returns: Detailed server information including runtime and memory usage
  */
 
-import type { EndpointRateLimitConfig, EndpointSchema } from 'nanowarp';
+import type { EndpointRateLimitConfig, EndpointSchema } from '../../../../src'; //Should Be NanoWarp
 
 // Configure rate limiting for this endpoint
 export const rateLimit: EndpointRateLimitConfig = {

@@ -5,7 +5,7 @@
  * Returns: Pong response
  */
 
-import type { EndpointRateLimitConfig, EndpointSchema } from 'nanowarp';
+import type { EndpointRateLimitConfig, EndpointSchema } from '../../../../src'; //Should Be NanoWarp
 
 // Disable rate limiting for this public endpoint
 export const rateLimit: EndpointRateLimitConfig = {
