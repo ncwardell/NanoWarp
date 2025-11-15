@@ -11,6 +11,19 @@ export class Server {
     Keys: Record<string, string>;
     Whitelist: string[];
 
+    // API Key cache (60 second TTL)
+    private apiKeyCache: {
+        keys: Record<string, string>;
+        whitelist: string[];
+        lastLoaded: number;
+    } | null = null;
+    private readonly API_KEY_CACHE_TTL = 60000; // 60 seconds
+
+    // Graceful shutdown
+    private server: any = null;
+    private inflightRequests = 0;
+    private isShuttingDown = false;
+
     constructor(_dataManager: DataManager, _port: number) {
         this.Port = _port;
         this.DataManager = _dataManager;
@@ -19,23 +32,59 @@ export class Server {
     }
 
     async getAPIKeys() {
+        // Check cache first
+        if (this.apiKeyCache && Date.now() - this.apiKeyCache.lastLoaded < this.API_KEY_CACHE_TTL) {
+            this.Keys = this.apiKeyCache.keys;
+            this.Whitelist = this.apiKeyCache.whitelist;
+            return;
+        }
+
+        // Load from file
         const file = Bun.file(`${this.DataManager.DataTree.RootDirectory}/apikeys.json`);
         if (await file.exists()) {
             const data = await file.json();
             this.Keys = data.keys || {};
             this.Whitelist = data.whitelist || [];
+
+            // Update cache
+            this.apiKeyCache = {
+                keys: this.Keys,
+                whitelist: this.Whitelist,
+                lastLoaded: Date.now()
+            };
         } else {
             // Reset to defaults if file doesn't exist
             this.Keys = {};
             this.Whitelist = [];
+
+            // Update cache
+            this.apiKeyCache = {
+                keys: {},
+                whitelist: [],
+                lastLoaded: Date.now()
+            };
         }
+    }
+
+    // Manual cache clear method (useful for hot-reloading API keys)
+    clearAPIKeyCache() {
+        this.apiKeyCache = null;
+        console.log(setColor('API key cache cleared', 'yellow'));
     }
 
     async start() {
         let that = this;
-        const api = serve({
+        this.server = serve({
             port: this.Port,
             fetch: async (request) => {
+                // Reject new requests during shutdown
+                if (this.isShuttingDown) {
+                    return new Response('Server is shutting down', { status: 503 });
+                }
+
+                // Track in-flight requests
+                this.inflightRequests++;
+
                 try {
                     // Efficient path extraction using URL API
                     const url = new URL(request.url);
@@ -99,11 +148,43 @@ export class Server {
                 } catch (error) {
                     console.error(setColor('Error processing request:', 'red'), error);
                     return new Response('Internal Server Error', { status: 500 });
+                } finally {
+                    // Decrement in-flight request counter
+                    this.inflightRequests--;
                 }
             },
         });
 
         console.log(setColor('API listening on port ' + this.Port, 'yellow'));
         console.log('--------------------------' + '\n');
+    }
+
+    // Graceful shutdown
+    async stop() {
+        console.log(setColor('\n🛑 Initiating graceful shutdown...', 'yellow'));
+        this.isShuttingDown = true;
+
+        // Stop accepting new connections
+        if (this.server) {
+            this.server.stop();
+        }
+
+        // Wait for in-flight requests to complete (with timeout)
+        const maxWaitTime = 30000; // 30 seconds
+        const startTime = Date.now();
+
+        while (this.inflightRequests > 0 && Date.now() - startTime < maxWaitTime) {
+            console.log(setColor(`⏳ Waiting for ${this.inflightRequests} in-flight requests...`, 'yellow'));
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        if (this.inflightRequests > 0) {
+            console.log(setColor(`⚠ Shutdown timeout - ${this.inflightRequests} requests still in-flight`, 'yellow'));
+        }
+
+        // Flush any pending database writes
+        await this.DataManager.saveDataBase();
+
+        console.log(setColor('✓ Server stopped gracefully', 'green'));
     }
 }

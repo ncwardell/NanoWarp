@@ -36,6 +36,9 @@ export class DataManager {
     //Total Database Storage
     DataTree: ManagedStorage;
 
+    //File write locks for atomic operations
+    private writeLocks = new Map<string, Promise<void>>();
+
     //Constructs The Object
     constructor(_rootFolder: string, _directoryEntry?: DirectoryEntry) {
         if (_directoryEntry === undefined) {
@@ -94,15 +97,43 @@ export class DataManager {
 
     async saveData(_path: string, _data: any) {
         console.log(setColor(' • Saving Data', 'yellow'));
-        let file = Bun.file(_path);
-        await Bun.write(file, _data);
 
-        if (await fs.pathExists(_path) == true) {
-            console.log(setColor(` ➛ Data Saved (${_path})`, 'orange'));
-            return true;
-        } else {
-            console.log(setColor(` ➛ Data Save Failed (${_path})`, 'red'));
-            return false;
+        // Wait for any existing write to this file to complete
+        while (this.writeLocks.has(_path)) {
+            await this.writeLocks.get(_path);
+        }
+
+        // Atomic write using temp file then rename
+        const tempPath = `${_path}.tmp.${Date.now()}.${Math.random().toString(36).substr(2, 9)}`;
+
+        const writePromise = (async () => {
+            try {
+                // Write to temporary file
+                await Bun.write(tempPath, _data);
+
+                // Atomic rename (POSIX guarantees atomicity)
+                await fs.rename(tempPath, _path);
+
+                console.log(setColor(` ➛ Data Saved (${_path})`, 'orange'));
+                return true;
+            } catch (error) {
+                // Clean up temp file if it exists
+                try {
+                    await fs.remove(tempPath);
+                } catch {}
+
+                console.log(setColor(` ➛ Data Save Failed (${_path})`, 'red'));
+                return false;
+            }
+        })();
+
+        // Lock this path
+        this.writeLocks.set(_path, writePromise);
+
+        try {
+            return await writePromise;
+        } finally {
+            this.writeLocks.delete(_path);
         }
     };
 
