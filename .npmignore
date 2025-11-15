@@ -1,0 +1,43 @@
+# Source files (we ship dist/ instead)
+src/
+tsconfig.json
+
+# Development files
+examples/
+data/
+*.ts
+!*.d.ts
+
+# Build artifacts
+*.tsbuildinfo
+
+# Dependencies
+node_modules/
+
+# Version control
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Testing
+coverage/
+.nyc_output/
+
+# Misc
+.env
+.env.local
+bun.lockb
+package-lock.json

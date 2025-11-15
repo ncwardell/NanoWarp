@@ -37,7 +37,7 @@ export class DataManager {
     DataTree: ManagedStorage;
 
     //File write locks for atomic operations
-    private writeLocks = new Map<string, Promise<void>>();
+    private writeLocks = new Map<string, Promise<boolean>>();
 
     //Constructs The Object
     constructor(_rootFolder: string, _directoryEntry?: DirectoryEntry) {
