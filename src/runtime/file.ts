@@ -43,7 +43,6 @@ export type FileData = string | Buffer | Uint8Array;
  */
 export async function writeFileRuntime(path: string, data: FileData): Promise<void> {
     if (isBun) {
-        // @ts-expect-error - Bun global not in standard TypeScript types
         await Bun.write(path, data);
     } else {
         await writeFile(path, data);
@@ -73,7 +72,6 @@ export async function writeFileRuntime(path: string, data: FileData): Promise<vo
  */
 export async function readJsonFile<T = unknown>(path: string): Promise<T> {
     if (isBun) {
-        // @ts-expect-error - Bun global not in standard TypeScript types
         return await Bun.file(path).json();
     } else {
         const content = await readFile(path, 'utf-8');
@@ -102,7 +100,6 @@ export async function readJsonFile<T = unknown>(path: string): Promise<T> {
  */
 export async function readFileAsArrayBuffer(path: string): Promise<ArrayBuffer> {
     if (isBun) {
-        // @ts-expect-error - Bun global not in standard TypeScript types
         return await Bun.file(path).arrayBuffer();
     } else {
         const buffer = await readFile(path);
@@ -134,7 +131,6 @@ export async function readFileAsArrayBuffer(path: string): Promise<ArrayBuffer> 
  */
 export async function fileExists(path: string): Promise<boolean> {
     if (isBun) {
-        // @ts-expect-error - Bun global not in standard TypeScript types
         return await Bun.file(path).exists();
     } else {
         try {

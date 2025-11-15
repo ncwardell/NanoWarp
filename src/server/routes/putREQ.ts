@@ -1,4 +1,3 @@
-//Fancy Debugging
 import type { DataManager } from "../../database/DataManager";
 import type { NanoWarpConfig } from "../../types/config";
 import { setColor } from "../../helpers/colors";
@@ -74,10 +73,7 @@ export function clearAllModuleCache() {
     console.log(setColor('Module cache cleared', 'yellow'));
 }
 
-//Endpoint Router
-export const getReq = async (_pathMap: string[], _request: any, _Database: DataManager, _config: Required<NanoWarpConfig>): Promise<Response> => {
-
-    //Add Auth Middleware Here
+export const putReq = async (_pathMap: string[], _request: any, _Database: DataManager, _config: Required<NanoWarpConfig>): Promise<Response> => {
 
     // Update cache size from config
     MAX_CACHE_SIZE = _config.cache.moduleCacheSize!;
@@ -96,7 +92,7 @@ function timeout(ms: number): Promise<never> {
 
 //Execute Endpoint Function with Error Boundaries
 const execute = async (_path: string, _request: any, _dataPath: string, _Database: DataManager, _config: Required<NanoWarpConfig>) => {
-    const fullPath = `${_dataPath}/Endpoints/GET/${_path}`;
+    const fullPath = `${_dataPath}/Endpoints/PUT/${_path}`;
 
     try {
         // Load module with caching and version-based hot reload
@@ -140,7 +136,7 @@ const execute = async (_path: string, _request: any, _dataPath: string, _Databas
         ]);
 
         if (_config.logging) {
-            let debugText = setColor('Executed:', 'orange') + ' ' + setColor('GET', 'blue') + ' "' + setColor(_path, 'cyan') + '"\n';
+            let debugText = setColor('Executed:', 'orange') + ' ' + setColor('PUT', 'blue') + ' "' + setColor(_path, 'cyan') + '"\n';
             console.log(debugText);
         }
         return response;
@@ -149,14 +145,14 @@ const execute = async (_path: string, _request: any, _dataPath: string, _Databas
         // Error boundary - log but don't crash server
         if (error.message === 'Request timeout') {
             if (_config.logging) {
-                console.log(setColor(` ✗ Timeout: GET "${_path}"`, 'red'));
+                console.log(setColor(` ✗ Timeout: PUT "${_path}"`, 'red'));
             }
             return new Response('Request Timeout', { status: 504 });
         }
 
         // Module not found or execution error
         if (_config.logging) {
-            let debugText = setColor(' Failed Request:', 'red') + ' ' + setColor('GET', 'blue') + ' "' + setColor(_path, 'cyan') + '"\n';
+            let debugText = setColor(' Failed Request:', 'red') + ' ' + setColor('PUT', 'blue') + ' "' + setColor(_path, 'cyan') + '"\n';
             console.log(debugText);
 
             // Log error details for debugging

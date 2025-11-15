@@ -26,6 +26,9 @@ class ManagedStorage {
             if ((await fs.pathExists(this.RootDirectory + '/Endpoints')) == false) { await fs.ensureDir(this.RootDirectory + '/Endpoints'); }
             if ((await fs.pathExists(this.RootDirectory + '/Endpoints/GET')) == false) { await fs.ensureDir(this.RootDirectory + '/Endpoints/GET'); }
             if ((await fs.pathExists(this.RootDirectory + '/Endpoints/POST')) == false) { await fs.ensureDir(this.RootDirectory + '/Endpoints/POST'); }
+            if ((await fs.pathExists(this.RootDirectory + '/Endpoints/PUT')) == false) { await fs.ensureDir(this.RootDirectory + '/Endpoints/PUT'); }
+            if ((await fs.pathExists(this.RootDirectory + '/Endpoints/PATCH')) == false) { await fs.ensureDir(this.RootDirectory + '/Endpoints/PATCH'); }
+            if ((await fs.pathExists(this.RootDirectory + '/Endpoints/DELETE')) == false) { await fs.ensureDir(this.RootDirectory + '/Endpoints/DELETE'); }
         }
     }
 }
