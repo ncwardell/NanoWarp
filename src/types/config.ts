@@ -5,9 +5,10 @@
  */
 
 /**
- * Rate limiting configuration
+ * Rate limiting configuration for individual endpoints
+ * Define this in your endpoint file to control rate limiting
  */
-export interface RateLimitConfig {
+export interface EndpointRateLimitConfig {
     /**
      * Maximum number of tokens per IP address
      * @default 100
@@ -15,7 +16,7 @@ export interface RateLimitConfig {
     maxTokens?: number;
 
     /**
-     * Number of tokens to refill per second
+     * Number of tokens to refill per interval
      * @default 10
      */
     refillRate?: number;
@@ -27,28 +28,76 @@ export interface RateLimitConfig {
     refillInterval?: number;
 
     /**
-     * Per-endpoint rate limit overrides
-     * Map of endpoint path to custom rate limit config
-     *
-     * @example
-     * ```typescript
-     * {
-     *   '/auth/login': { maxTokens: 5, refillRate: 1 },
-     *   '/api/heavy': { maxTokens: 10, refillRate: 2 }
-     * }
-     * ```
-     */
-    perEndpoint?: Record<string, {
-        maxTokens?: number;
-        refillRate?: number;
-        refillInterval?: number;
-    }>;
-
-    /**
-     * Enable or disable rate limiting entirely
+     * Enable or disable rate limiting for this endpoint
      * @default true
      */
     enabled?: boolean;
+}
+
+/**
+ * OpenAPI schema definition for an endpoint
+ * Define this in your endpoint file to document your API
+ */
+export interface EndpointSchema {
+    /**
+     * Endpoint summary (brief description)
+     */
+    summary?: string;
+
+    /**
+     * Detailed description
+     */
+    description?: string;
+
+    /**
+     * Tags for grouping endpoints
+     */
+    tags?: string[];
+
+    /**
+     * Request body schema (for POST/PUT/PATCH)
+     */
+    requestBody?: {
+        description?: string;
+        required?: boolean;
+        content: {
+            [mediaType: string]: {
+                schema: any;
+                example?: any;
+            };
+        };
+    };
+
+    /**
+     * Response schemas by status code
+     */
+    responses?: {
+        [statusCode: string]: {
+            description: string;
+            content?: {
+                [mediaType: string]: {
+                    schema: any;
+                    example?: any;
+                };
+            };
+        };
+    };
+
+    /**
+     * Query parameters
+     */
+    parameters?: Array<{
+        name: string;
+        in: 'query' | 'path' | 'header';
+        description?: string;
+        required?: boolean;
+        schema: any;
+    }>;
+
+    /**
+     * Security requirements (overrides default)
+     */
+    security?: Array<Record<string, string[]>>;
 }
 
 /**
@@ -151,11 +200,6 @@ export interface NanoWarpConfig {
     dataPath?: string;
 
     /**
-     * Rate limiting configuration
-     */
-    rateLimit?: RateLimitConfig;
-
-    /**
      * Caching configuration
      */
     cache?: CacheConfig;
@@ -183,13 +227,6 @@ export interface NanoWarpConfig {
 export const DEFAULT_CONFIG: Required<NanoWarpConfig> = {
     port: 3000,
     dataPath: './data',
-    rateLimit: {
-        maxTokens: 100,
-        refillRate: 10,
-        refillInterval: 1000,
-        perEndpoint: {},
-        enabled: true,
-    },
     cache: {
         apiKeyTTL: 60000,
         moduleCacheSize: 100,
@@ -199,7 +236,7 @@ export const DEFAULT_CONFIG: Required<NanoWarpConfig> = {
         shutdown: 30000,
     },
     openapi: {
-        enabled: true,
+        enabled: false,
         specPath: '/openapi.json',
         uiPath: '/docs',
         info: {
@@ -221,13 +258,6 @@ export function mergeConfig(userConfig?: NanoWarpConfig): Required<NanoWarpConfi
     return {
         port: userConfig.port ?? DEFAULT_CONFIG.port,
         dataPath: userConfig.dataPath ?? DEFAULT_CONFIG.dataPath,
-        rateLimit: {
-            maxTokens: userConfig.rateLimit?.maxTokens ?? DEFAULT_CONFIG.rateLimit.maxTokens,
-            refillRate: userConfig.rateLimit?.refillRate ?? DEFAULT_CONFIG.rateLimit.refillRate,
-            refillInterval: userConfig.rateLimit?.refillInterval ?? DEFAULT_CONFIG.rateLimit.refillInterval,
-            perEndpoint: userConfig.rateLimit?.perEndpoint ?? DEFAULT_CONFIG.rateLimit.perEndpoint,
-            enabled: userConfig.rateLimit?.enabled ?? DEFAULT_CONFIG.rateLimit.enabled,
-        },
         cache: {
             apiKeyTTL: userConfig.cache?.apiKeyTTL ?? DEFAULT_CONFIG.cache.apiKeyTTL,
             moduleCacheSize: userConfig.cache?.moduleCacheSize ?? DEFAULT_CONFIG.cache.moduleCacheSize,

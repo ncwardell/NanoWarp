@@ -8,6 +8,68 @@
  * Data is stored in ./test-data/users.json
  */
 
+import type { EndpointRateLimitConfig, EndpointSchema } from '../../../src/types/config';
+import { DataManager } from '../../../src/database/DataManager';
+
+// Rate limiting configuration for this endpoint
+export const rateLimit: EndpointRateLimitConfig = {
+    enabled: true,
+    maxTokens: 100,
+    refillRate: 10,
+    refillInterval: 1000, // 1 second
+};
+
+// OpenAPI schema for this endpoint
+export const schema: EndpointSchema = {
+    summary: 'Get all users',
+    description: 'Retrieves a list of all users from the database',
+    tags: ['users'],
+    responses: {
+        '200': {
+            description: 'List of users retrieved successfully',
+            content: {
+                'application/json': {
+                    schema: DataManager.createSchema('object', {
+                        properties: {
+                            count: { type: 'number', description: 'Number of users' },
+                            users: DataManager.createSchema('array', {
+                                items: DataManager.createSchema('object', {
+                                    properties: {
+                                        id: { type: 'string', description: 'User ID' },
+                                        name: { type: 'string', description: 'User name' },
+                                        email: { type: 'string', description: 'User email' },
+                                    },
+                                }),
+                            }),
+                        },
+                    }),
+                    example: {
+                        count: 2,
+                        users: [
+                            { id: '1', name: 'John Doe', email: 'john@example.com' },
+                            { id: '2', name: 'Jane Smith', email: 'jane@example.com' },
+                        ],
+                    },
+                },
+            },
+        },
+        '500': {
+            description: 'Failed to retrieve users',
+            content: {
+                'application/json': {
+                    schema: DataManager.createSchema('object', {
+                        properties: {
+                            error: { type: 'string' },
+                            message: { type: 'string' },
+                            hint: { type: 'string' },
+                        },
+                    }),
+                },
+            },
+        },
+    },
+};
+
 export const execute = async (path: string, request: Request, Database: any) => {
     try {
         // Try to retrieve users from database

@@ -9,6 +9,93 @@
  * Data is stored in ./test-data/users.json
  */
 
+import type { EndpointRateLimitConfig, EndpointSchema } from '../../../src/types/config';
+import { DataManager } from '../../../src/database/DataManager';
+
+// Stricter rate limiting for user creation
+export const rateLimit: EndpointRateLimitConfig = {
+    enabled: true,
+    maxTokens: 10,
+    refillRate: 2,
+    refillInterval: 60000, // 1 minute
+};
+
+// OpenAPI schema for this endpoint
+export const schema: EndpointSchema = {
+    summary: 'Create a new user',
+    description: 'Creates a new user and stores it in the database',
+    tags: ['users'],
+    requestBody: {
+        description: 'User data',
+        required: true,
+        content: {
+            'application/json': {
+                schema: DataManager.createSchema('object', {
+                    properties: {
+                        name: { type: 'string', description: 'User name' },
+                        email: { type: 'string', description: 'User email address', format: 'email' },
+                    },
+                    required: ['name', 'email'],
+                }),
+                example: {
+                    name: 'John Doe',
+                    email: 'john@example.com',
+                },
+            },
+        },
+    },
+    responses: {
+        '201': {
+            description: 'User created successfully',
+            content: {
+                'application/json': {
+                    schema: DataManager.createSchema('object', {
+                        properties: {
+                            message: { type: 'string' },
+                            user: DataManager.createSchema('object', {
+                                properties: {
+                                    id: { type: 'number', description: 'User ID' },
+                                    name: { type: 'string', description: 'User name' },
+                                    email: { type: 'string', description: 'User email' },
+                                    createdAt: { type: 'string', format: 'date-time' },
+                                },
+                            }),
+                        },
+                    }),
+                },
+            },
+        },
+        '400': {
+            description: 'Missing required fields',
+            content: {
+                'application/json': {
+                    schema: DataManager.createSchema('object', {
+                        properties: {
+                            error: { type: 'string' },
+                            required: DataManager.createSchema('array', {
+                                items: { type: 'string' },
+                            }),
+                        },
+                    }),
+                },
+            },
+        },
+        '500': {
+            description: 'Failed to create user',
+            content: {
+                'application/json': {
+                    schema: DataManager.createSchema('object', {
+                        properties: {
+                            error: { type: 'string' },
+                            message: { type: 'string' },
+                        },
+                    }),
+                },
+            },
+        },
+    },
+};
+
 export const execute = async (path: string, request: Request, Database: any) => {
     try {
         // Parse request body

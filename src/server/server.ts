@@ -30,9 +30,6 @@ export class Server {
     private inflightRequests = 0;
     private isShuttingDown = false;
 
-    // Rate limiting (token bucket algorithm) - now configurable
-    private rateLimiter = new Map<string, { tokens: number; lastRefill: number }>();
-
     constructor(_dataManager: DataManager, _config: Required<NanoWarpConfig>) {
         this.config = _config;
         this.Port = _config.port;
@@ -82,62 +79,6 @@ export class Server {
         console.log(setColor('API key cache cleared', 'yellow'));
     }
 
-    // Check rate limit using token bucket algorithm with per-endpoint support
-    checkRateLimit(ip: string, path: string): boolean {
-        // Check if rate limiting is enabled
-        if (!this.config.rateLimit.enabled) {
-            return true;
-        }
-
-        // Get endpoint-specific config or use defaults
-        const endpointConfig = this.config.rateLimit.perEndpoint![path];
-        const maxTokens = endpointConfig?.maxTokens ?? this.config.rateLimit.maxTokens!;
-        const refillRate = endpointConfig?.refillRate ?? this.config.rateLimit.refillRate!;
-        const refillInterval = endpointConfig?.refillInterval ?? this.config.rateLimit.refillInterval!;
-
-        // Use path-specific bucket key for per-endpoint limits
-        const bucketKey = endpointConfig ? `${ip}:${path}` : ip;
-
-        const now = Date.now();
-        let bucket = this.rateLimiter.get(bucketKey);
-
-        if (!bucket) {
-            // Create new bucket with full tokens
-            bucket = { tokens: maxTokens - 1, lastRefill: now };
-            this.rateLimiter.set(bucketKey, bucket);
-            return true;
-        }
-
-        // Calculate tokens to add based on time elapsed
-        const timeElapsed = now - bucket.lastRefill;
-        const tokensToAdd = Math.floor(timeElapsed / refillInterval) * refillRate;
-
-        if (tokensToAdd > 0) {
-            bucket.tokens = Math.min(maxTokens, bucket.tokens + tokensToAdd);
-            bucket.lastRefill = now;
-        }
-
-        // Check if we have tokens available
-        if (bucket.tokens > 0) {
-            bucket.tokens--;
-            return true;
-        }
-
-        return false;
-    }
-
-    // Clean up old rate limiter entries (prevent memory leak)
-    cleanupRateLimiter() {
-        const now = Date.now();
-        const maxAge = 5 * 60 * 1000; // 5 minutes
-
-        for (const [ip, bucket] of this.rateLimiter.entries()) {
-            if (now - bucket.lastRefill > maxAge) {
-                this.rateLimiter.delete(ip);
-            }
-        }
-    }
-
     async start() {
         let that = this;
         this.server = createServer({
@@ -151,18 +92,6 @@ export class Server {
                 // Efficient path extraction using URL API
                 const url = new URL(request.url);
                 const path = url.pathname;
-
-                // Rate limiting check (with path for per-endpoint limits)
-                const clientIP = request.headers.get('x-forwarded-for') ||
-                                request.headers.get('x-real-ip') ||
-                                'unknown';
-
-                if (!this.checkRateLimit(clientIP, path)) {
-                    if (this.config.logging) {
-                        console.log(setColor(`Rate limit exceeded for ${clientIP} on ${path}`, 'red'));
-                    }
-                    return new Response('Too Many Requests', { status: 429 });
-                }
 
                 // Track in-flight requests
                 this.inflightRequests++;
@@ -270,11 +199,6 @@ export class Server {
                 }
             },
         });
-
-        // Periodic cleanup of rate limiter (every 5 minutes)
-        setInterval(() => {
-            this.cleanupRateLimiter();
-        }, 5 * 60 * 1000);
 
         console.log(setColor('API listening on port ' + this.Port, 'yellow'));
         console.log('--------------------------' + '\n');
