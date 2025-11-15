@@ -24,6 +24,12 @@ export class Server {
     private inflightRequests = 0;
     private isShuttingDown = false;
 
+    // Rate limiting (token bucket algorithm)
+    private rateLimiter = new Map<string, { tokens: number; lastRefill: number }>();
+    private readonly RATE_LIMIT_TOKENS = 100; // Max tokens per bucket
+    private readonly RATE_LIMIT_REFILL = 10;  // Tokens added per second
+    private readonly RATE_LIMIT_WINDOW = 1000; // Refill interval (1 second)
+
     constructor(_dataManager: DataManager, _port: number) {
         this.Port = _port;
         this.DataManager = _dataManager;
@@ -72,6 +78,48 @@ export class Server {
         console.log(setColor('API key cache cleared', 'yellow'));
     }
 
+    // Check rate limit using token bucket algorithm
+    checkRateLimit(ip: string): boolean {
+        const now = Date.now();
+        let bucket = this.rateLimiter.get(ip);
+
+        if (!bucket) {
+            // Create new bucket with full tokens
+            bucket = { tokens: this.RATE_LIMIT_TOKENS - 1, lastRefill: now };
+            this.rateLimiter.set(ip, bucket);
+            return true;
+        }
+
+        // Calculate tokens to add based on time elapsed
+        const timeElapsed = now - bucket.lastRefill;
+        const tokensToAdd = Math.floor(timeElapsed / this.RATE_LIMIT_WINDOW) * this.RATE_LIMIT_REFILL;
+
+        if (tokensToAdd > 0) {
+            bucket.tokens = Math.min(this.RATE_LIMIT_TOKENS, bucket.tokens + tokensToAdd);
+            bucket.lastRefill = now;
+        }
+
+        // Check if we have tokens available
+        if (bucket.tokens > 0) {
+            bucket.tokens--;
+            return true;
+        }
+
+        return false;
+    }
+
+    // Clean up old rate limiter entries (prevent memory leak)
+    cleanupRateLimiter() {
+        const now = Date.now();
+        const maxAge = 5 * 60 * 1000; // 5 minutes
+
+        for (const [ip, bucket] of this.rateLimiter.entries()) {
+            if (now - bucket.lastRefill > maxAge) {
+                this.rateLimiter.delete(ip);
+            }
+        }
+    }
+
     async start() {
         let that = this;
         this.server = serve({
@@ -80,6 +128,16 @@ export class Server {
                 // Reject new requests during shutdown
                 if (this.isShuttingDown) {
                     return new Response('Server is shutting down', { status: 503 });
+                }
+
+                // Rate limiting check
+                const clientIP = request.headers.get('x-forwarded-for') ||
+                                request.headers.get('x-real-ip') ||
+                                'unknown';
+
+                if (!this.checkRateLimit(clientIP)) {
+                    console.log(setColor(`Rate limit exceeded for ${clientIP}`, 'red'));
+                    return new Response('Too Many Requests', { status: 429 });
                 }
 
                 // Track in-flight requests
@@ -154,6 +212,11 @@ export class Server {
                 }
             },
         });
+
+        // Periodic cleanup of rate limiter (every 5 minutes)
+        setInterval(() => {
+            this.cleanupRateLimiter();
+        }, 5 * 60 * 1000);
 
         console.log(setColor('API listening on port ' + this.Port, 'yellow'));
         console.log('--------------------------' + '\n');

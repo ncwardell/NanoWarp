@@ -2,22 +2,73 @@ import type { DataManager } from "../../database/DataManager";
 import { setColor } from "../../helpers/colors";
 import { watch } from "fs";
 
-//Module Cache for hot-reloading
+//Module Cache for hot-reloading with LRU eviction
 const moduleCache = new Map<string, any>();
 const moduleVersions = new Map<string, number>();
 const watchers = new Map<string, any>();
+const moduleLastAccess = new Map<string, number>();
+const MAX_CACHE_SIZE = 100;
 
 //Clear specific module from cache (for hot-reloading)
 function clearModuleCache(fullPath: string) {
     moduleCache.delete(fullPath);
+    moduleLastAccess.delete(fullPath);
     // Increment version to force reimport
     const currentVersion = moduleVersions.get(fullPath) || 0;
     moduleVersions.set(fullPath, currentVersion + 1);
 }
 
+//Close watcher for a specific module
+function closeWatcher(fullPath: string) {
+    const watcher = watchers.get(fullPath);
+    if (watcher) {
+        try {
+            watcher.close();
+            watchers.delete(fullPath);
+        } catch (e) {
+            // Ignore close errors
+        }
+    }
+}
+
+//Evict least recently used module
+function evictLRU() {
+    if (moduleCache.size < MAX_CACHE_SIZE) return;
+
+    let oldestPath: string | null = null;
+    let oldestTime = Date.now();
+
+    for (const [path, lastAccess] of moduleLastAccess.entries()) {
+        if (lastAccess < oldestTime) {
+            oldestTime = lastAccess;
+            oldestPath = path;
+        }
+    }
+
+    if (oldestPath) {
+        console.log(setColor(` ♻ Evicting LRU module: ${oldestPath}`, 'yellow'));
+        closeWatcher(oldestPath);
+        moduleCache.delete(oldestPath);
+        moduleVersions.delete(oldestPath);
+        moduleLastAccess.delete(oldestPath);
+    }
+}
+
 //Clear all modules from cache
 export function clearAllModuleCache() {
+    // Close all watchers first (graceful cleanup)
+    for (const [path, watcher] of watchers.entries()) {
+        try {
+            watcher.close();
+        } catch (e) {
+            // Ignore close errors
+        }
+    }
+
+    watchers.clear();
     moduleCache.clear();
+    moduleVersions.clear();
+    moduleLastAccess.clear();
     console.log(setColor('Module cache cleared', 'yellow'));
 }
 
@@ -42,10 +93,16 @@ const execute = async (_path: string, _request: any, _dataPath: string, _Databas
     try {
         // Load module with caching and version-based hot reload
         if (!moduleCache.has(fullPath)) {
+            // Evict LRU module if cache is full
+            evictLRU();
+
             const version = moduleVersions.get(fullPath) || 0;
             const importPath = version > 0 ? `${fullPath}?v=${version}` : fullPath;
+
+            // Blue-green deployment: Load new module before clearing old
             const module = await import(importPath);
             moduleCache.set(fullPath, module);
+            moduleLastAccess.set(fullPath, Date.now());
 
             // Watch file for changes (hot-reload) - only set up once
             if (!watchers.has(fullPath)) {
@@ -61,6 +118,9 @@ const execute = async (_path: string, _request: any, _dataPath: string, _Databas
                     // File watching failed, continue without it
                 }
             }
+        } else {
+            // Update last access time for LRU tracking
+            moduleLastAccess.set(fullPath, Date.now());
         }
 
         const module = moduleCache.get(fullPath);
