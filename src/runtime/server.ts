@@ -1,18 +1,75 @@
-// HTTP server abstraction layer
+/**
+ * Cross-Runtime HTTP Server
+ *
+ * @module runtime/server
+ * @description Provides a unified HTTP server API that works across both Bun and Node.js.
+ * Uses the Web Standards fetch API for request handling, making it compatible with
+ * modern edge runtimes and frameworks.
+ *
+ * Features:
+ * - Unified fetch-based API
+ * - Automatic runtime detection
+ * - Web Standards Request/Response objects
+ * - Graceful shutdown support
+ */
+
 import { isBun } from './detect';
 import http from 'node:http';
 
+/**
+ * Configuration options for creating an HTTP server
+ */
 export interface ServerOptions {
+    /**
+     * Port number to listen on
+     */
     port: number;
+
+    /**
+     * Request handler using Web Standards fetch API
+     *
+     * @param request - Web Standards Request object
+     * @returns Web Standards Response object or Promise resolving to one
+     */
     fetch: (request: Request) => Promise<Response> | Response;
 }
 
+/**
+ * Server instance with lifecycle control methods
+ */
 export interface ServerInstance {
+    /**
+     * Stop the server and close all connections
+     */
     stop: () => void;
 }
 
 /**
- * Create an HTTP server (works in both Bun and Node.js)
+ * Create an HTTP server using runtime-specific implementations
+ *
+ * - **Bun**: Uses `Bun.serve()` with native fetch handler
+ * - **Node.js**: Uses `http.createServer()` with fetch adapter
+ *
+ * Both implementations use the same Web Standards Request/Response interface,
+ * ensuring your code is portable across runtimes.
+ *
+ * @param options - Server configuration options
+ * @returns Server instance with lifecycle control methods
+ *
+ * @example
+ * ```typescript
+ * const server = createServer({
+ *   port: 3000,
+ *   fetch: async (request) => {
+ *     return new Response('Hello World!', {
+ *       headers: { 'Content-Type': 'text/plain' }
+ *     });
+ *   }
+ * });
+ *
+ * // Later, gracefully shutdown
+ * server.stop();
+ * ```
  */
 export function createServer(options: ServerOptions): ServerInstance {
     if (isBun) {
