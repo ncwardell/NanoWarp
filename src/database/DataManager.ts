@@ -186,10 +186,11 @@ export class DataManager {
 
 
     async loadDataBase(_path: string) {
-        const data = await this.retrieveData(_path);
-        if (data) {
+        if (await fileExists(_path)) {
             try {
-                const reconstructed = JSON.parse(JSON.stringify(data), reviver);
+                // Read raw file content and parse once with reviver (no double parse)
+                const rawContent = await fs.readFile(_path, 'utf-8');
+                const reconstructed = JSON.parse(rawContent, reviver);
                 this.DataTree = new ManagedStorage(reconstructed.RootDirectory, reconstructed.DataBaseFile, new DirectoryList(reconstructed.RootDirectory, reconstructed.DirectoryList.EntryList));
                 console.log(setColor(` ➛ Database Loaded (${_path})`, 'magenta'));
             } catch (error) {

@@ -14,7 +14,7 @@
  */
 
 import { isBun } from './detect';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, access } from 'node:fs/promises';
 
 /**
  * Supported file data types for write operations
@@ -115,7 +115,7 @@ export async function readFileAsArrayBuffer(path: string): Promise<ArrayBuffer> 
  * Check if a file exists at the given path
  *
  * - **Bun**: Uses `Bun.file().exists()` for fast existence check
- * - **Node.js**: Attempts to read the file and catches errors
+ * - **Node.js**: Uses `fs.access()` for efficient existence check without reading the file
  *
  * @param path - Absolute or relative path to check
  * @returns Promise resolving to `true` if file exists, `false` otherwise
@@ -134,7 +134,7 @@ export async function fileExists(path: string): Promise<boolean> {
         return await Bun.file(path).exists();
     } else {
         try {
-            await readFile(path);
+            await access(path);
             return true;
         } catch {
             return false;
