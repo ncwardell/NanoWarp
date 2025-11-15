@@ -8,8 +8,8 @@
  * Data is stored in ./test-data/users.json
  */
 
-import type { EndpointRateLimitConfig, EndpointSchema } from '../../../src/types/config';
-import { DataManager } from '../../../src/database/DataManager';
+import type { EndpointRateLimitConfig, EndpointSchema } from 'nanowarp';
+import { DataManager } from 'nanowarp';
 
 // Rate limiting configuration for this endpoint
 export const rateLimit: EndpointRateLimitConfig = {

@@ -5,7 +5,7 @@
  * Returns: Plain text greeting
  */
 
-import type { EndpointRateLimitConfig, EndpointSchema } from '../../../src/types/config';
+import type { EndpointRateLimitConfig, EndpointSchema } from 'nanowarp';
 
 // Disable rate limiting for this public endpoint
 export const rateLimit: EndpointRateLimitConfig = {
