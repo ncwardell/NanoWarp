@@ -36,6 +36,9 @@ export class DataManager {
     //Total Database Storage
     DataTree: ManagedStorage;
 
+    //File write locks for atomic operations
+    private writeLocks = new Map<string, Promise<void>>();
+
     //Constructs The Object
     constructor(_rootFolder: string, _directoryEntry?: DirectoryEntry) {
         if (_directoryEntry === undefined) {
@@ -49,6 +52,10 @@ export class DataManager {
     async initialize() {
         //Makes Sure Root Directory and database.lock File Exists
         await this.DataTree.Initialize();
+
+        //Create default health check endpoint if it doesn't exist
+        await this.createDefaultHealthEndpoint();
+
         //Loads & Reads The Database File
         let databaseFile = await Bun.file(this.DataTree.DataBaseFile).json();
         //If Database File is Not Empty
@@ -59,6 +66,37 @@ export class DataManager {
         }
         console.log(setColor('| Database Initialized |', 'magenta') + '\n');
     };
+
+    //Create default health check endpoint
+    async createDefaultHealthEndpoint() {
+        const healthEndpointPath = `${this.DataTree.RootDirectory}/Endpoints/GET/health.ts`;
+
+        // Only create if it doesn't exist (backward compatible)
+        if (!(await fs.pathExists(healthEndpointPath))) {
+            const healthEndpointContent = `// Auto-generated health check endpoint
+import type { DataManager } from "../../../src/database/DataManager";
+
+export const execute = async (path: string, request: Request, Database: DataManager) => {
+    const health = {
+        status: "healthy",
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        database: {
+            root: Database.DataTree.RootDirectory,
+            initialized: true
+        }
+    };
+
+    return new Response(JSON.stringify(health, null, 2), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+    });
+};
+`;
+            await Bun.write(healthEndpointPath, healthEndpointContent);
+            console.log(setColor(' ✓ Created default health endpoint: /health', 'green'));
+        }
+    }
 
     async retrieveData(_path: string) {
         console.log(setColor(' • Retrieving Data', 'yellow'));
@@ -94,15 +132,43 @@ export class DataManager {
 
     async saveData(_path: string, _data: any) {
         console.log(setColor(' • Saving Data', 'yellow'));
-        let file = Bun.file(_path);
-        await Bun.write(file, _data);
 
-        if (await fs.pathExists(_path) == true) {
-            console.log(setColor(` ➛ Data Saved (${_path})`, 'orange'));
-            return true;
-        } else {
-            console.log(setColor(` ➛ Data Save Failed (${_path})`, 'red'));
-            return false;
+        // Wait for any existing write to this file to complete
+        while (this.writeLocks.has(_path)) {
+            await this.writeLocks.get(_path);
+        }
+
+        // Atomic write using temp file then rename
+        const tempPath = `${_path}.tmp.${Date.now()}.${Math.random().toString(36).substr(2, 9)}`;
+
+        const writePromise = (async () => {
+            try {
+                // Write to temporary file
+                await Bun.write(tempPath, _data);
+
+                // Atomic rename (POSIX guarantees atomicity)
+                await fs.rename(tempPath, _path);
+
+                console.log(setColor(` ➛ Data Saved (${_path})`, 'orange'));
+                return true;
+            } catch (error) {
+                // Clean up temp file if it exists
+                try {
+                    await fs.remove(tempPath);
+                } catch {}
+
+                console.log(setColor(` ➛ Data Save Failed (${_path})`, 'red'));
+                return false;
+            }
+        })();
+
+        // Lock this path
+        this.writeLocks.set(_path, writePromise);
+
+        try {
+            return await writePromise;
+        } finally {
+            this.writeLocks.delete(_path);
         }
     };
 
