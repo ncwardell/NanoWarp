@@ -1,9 +1,14 @@
 import { postReq } from './routes/postREQ';
 import { getReq } from './routes/getREQ';
+import { putReq } from './routes/putREQ';
+import { patchReq } from './routes/patchREQ';
+import { deleteReq } from './routes/deleteREQ';
 import { setColor } from '../helpers/colors';
 import { DataManager } from "../database/DataManager";
 import { createServer, type ServerInstance } from '../runtime/server';
 import { fileExists, readJsonFile } from '../runtime/file';
+import type { NanoWarpConfig } from '../types/config';
+import { generateOpenAPISpec, generateSwaggerUI } from '../openapi/generator';
 
 // Server Class
 export class Server {
@@ -11,36 +16,34 @@ export class Server {
     DataManager: DataManager;
     Keys: Record<string, string>;
     Whitelist: string[];
+    config: Required<NanoWarpConfig>;
 
-    // API Key cache (60 second TTL)
+    // API Key cache (configurable TTL)
     private apiKeyCache: {
         keys: Record<string, string>;
         whitelist: string[];
         lastLoaded: number;
     } | null = null;
-    private readonly API_KEY_CACHE_TTL = 60000; // 60 seconds
 
     // Graceful shutdown
     private server: ServerInstance | null = null;
     private inflightRequests = 0;
     private isShuttingDown = false;
 
-    // Rate limiting (token bucket algorithm)
+    // Rate limiting (token bucket algorithm) - now configurable
     private rateLimiter = new Map<string, { tokens: number; lastRefill: number }>();
-    private readonly RATE_LIMIT_TOKENS = 100; // Max tokens per bucket
-    private readonly RATE_LIMIT_REFILL = 10;  // Tokens added per second
-    private readonly RATE_LIMIT_WINDOW = 1000; // Refill interval (1 second)
 
-    constructor(_dataManager: DataManager, _port: number) {
-        this.Port = _port;
+    constructor(_dataManager: DataManager, _config: Required<NanoWarpConfig>) {
+        this.config = _config;
+        this.Port = _config.port;
         this.DataManager = _dataManager;
         this.Keys = {};
         this.Whitelist = [];
     }
 
     async getAPIKeys() {
-        // Check cache first
-        if (this.apiKeyCache && Date.now() - this.apiKeyCache.lastLoaded < this.API_KEY_CACHE_TTL) {
+        // Check cache first (using configurable TTL)
+        if (this.apiKeyCache && Date.now() - this.apiKeyCache.lastLoaded < this.config.cache.apiKeyTTL!) {
             this.Keys = this.apiKeyCache.keys;
             this.Whitelist = this.apiKeyCache.whitelist;
             return;
@@ -49,7 +52,7 @@ export class Server {
         // Load from file
         const filePath = `${this.DataManager.DataTree.RootDirectory}/apikeys.json`;
         if (await fileExists(filePath)) {
-            const data = await readJsonFile(filePath);
+            const data: any = await readJsonFile(filePath);
             this.Keys = data.keys || {};
             this.Whitelist = data.whitelist || [];
 
@@ -79,24 +82,38 @@ export class Server {
         console.log(setColor('API key cache cleared', 'yellow'));
     }
 
-    // Check rate limit using token bucket algorithm
-    checkRateLimit(ip: string): boolean {
+    // Check rate limit using token bucket algorithm with per-endpoint support
+    checkRateLimit(ip: string, path: string): boolean {
+        // Check if rate limiting is enabled
+        if (!this.config.rateLimit.enabled) {
+            return true;
+        }
+
+        // Get endpoint-specific config or use defaults
+        const endpointConfig = this.config.rateLimit.perEndpoint![path];
+        const maxTokens = endpointConfig?.maxTokens ?? this.config.rateLimit.maxTokens!;
+        const refillRate = endpointConfig?.refillRate ?? this.config.rateLimit.refillRate!;
+        const refillInterval = endpointConfig?.refillInterval ?? this.config.rateLimit.refillInterval!;
+
+        // Use path-specific bucket key for per-endpoint limits
+        const bucketKey = endpointConfig ? `${ip}:${path}` : ip;
+
         const now = Date.now();
-        let bucket = this.rateLimiter.get(ip);
+        let bucket = this.rateLimiter.get(bucketKey);
 
         if (!bucket) {
             // Create new bucket with full tokens
-            bucket = { tokens: this.RATE_LIMIT_TOKENS - 1, lastRefill: now };
-            this.rateLimiter.set(ip, bucket);
+            bucket = { tokens: maxTokens - 1, lastRefill: now };
+            this.rateLimiter.set(bucketKey, bucket);
             return true;
         }
 
         // Calculate tokens to add based on time elapsed
         const timeElapsed = now - bucket.lastRefill;
-        const tokensToAdd = Math.floor(timeElapsed / this.RATE_LIMIT_WINDOW) * this.RATE_LIMIT_REFILL;
+        const tokensToAdd = Math.floor(timeElapsed / refillInterval) * refillRate;
 
         if (tokensToAdd > 0) {
-            bucket.tokens = Math.min(this.RATE_LIMIT_TOKENS, bucket.tokens + tokensToAdd);
+            bucket.tokens = Math.min(maxTokens, bucket.tokens + tokensToAdd);
             bucket.lastRefill = now;
         }
 
@@ -131,13 +148,19 @@ export class Server {
                     return new Response('Server is shutting down', { status: 503 });
                 }
 
-                // Rate limiting check
+                // Efficient path extraction using URL API
+                const url = new URL(request.url);
+                const path = url.pathname;
+
+                // Rate limiting check (with path for per-endpoint limits)
                 const clientIP = request.headers.get('x-forwarded-for') ||
                                 request.headers.get('x-real-ip') ||
                                 'unknown';
 
-                if (!this.checkRateLimit(clientIP)) {
-                    console.log(setColor(`Rate limit exceeded for ${clientIP}`, 'red'));
+                if (!this.checkRateLimit(clientIP, path)) {
+                    if (this.config.logging) {
+                        console.log(setColor(`Rate limit exceeded for ${clientIP} on ${path}`, 'red'));
+                    }
                     return new Response('Too Many Requests', { status: 429 });
                 }
 
@@ -145,18 +168,17 @@ export class Server {
                 this.inflightRequests++;
 
                 try {
-                    // Efficient path extraction using URL API
-                    const url = new URL(request.url);
-                    const path = url.pathname;
-                    function pathMap() {
-                        return path.split('/').filter(part => part !== '');
+                    function pathMap(p: string) {
+                        return p.split('/').filter(part => part !== '');
                     }
-                    const pathParts = pathMap();
+                    const pathParts = pathMap(path);
 
                     // Logging request details
-                    console.log(
-                        `${setColor('Request: ', 'green')}${setColor(request.method, 'blue')} "${setColor(path, 'cyan')}"`
-                    );
+                    if (this.config.logging) {
+                        console.log(
+                            `${setColor('Request: ', 'green')}${setColor(request.method, 'blue')} "${setColor(path, 'cyan')}"`
+                        );
+                    }
 
                     await this.getAPIKeys();
 
@@ -180,29 +202,64 @@ export class Server {
                         }
                     }
 
+                    // Handle OpenAPI/Swagger routes (if enabled)
+                    if (this.config.openapi.enabled) {
+                        // Serve OpenAPI JSON spec
+                        if (path === this.config.openapi.specPath!) {
+                            try {
+                                const spec = await generateOpenAPISpec(
+                                    this.DataManager.DataTree.RootDirectory,
+                                    this.config,
+                                    request.headers.get('host') ? `http://${request.headers.get('host')}` : undefined
+                                );
+                                return new Response(JSON.stringify(spec, null, 2), {
+                                    status: 200,
+                                    headers: { 'Content-Type': 'application/json' }
+                                });
+                            } catch (error) {
+                                console.error(setColor('Error generating OpenAPI spec:', 'red'), error);
+                                return new Response('Error generating OpenAPI specification', { status: 500 });
+                            }
+                        }
+
+                        // Serve Swagger UI HTML
+                        if (path === this.config.openapi.uiPath) {
+                            const html = generateSwaggerUI(this.config.openapi.specPath!);
+                            return new Response(html, {
+                                status: 200,
+                                headers: { 'Content-Type': 'text/html' }
+                            });
+                        }
+                    }
+
                     // Handle empty paths
                     if (pathParts.length === 0) {
                         return new Response('Invalid Path', { status: 400 });
                     }
 
                     // Route requests
+                    const routePathParts = pathParts[0] === 'api' ? pathParts.slice(1) : pathParts;
+
                     switch (request.method) {
                         case 'GET':
-                            if (pathParts[0] === 'api') {
-                                return await getReq(pathParts.slice(1), request, that.DataManager);
-                            } else {
-                                return await getReq(pathParts, request, that.DataManager);
-                            }
+                            return await getReq(routePathParts, request, that.DataManager, that.config);
 
                         case 'POST':
-                            if (pathParts[0] === 'api') {
-                                return await postReq(pathParts.slice(1), request, that.DataManager);
-                            } else {
-                                return await postReq(pathParts, request, that.DataManager);
-                            }
+                            return await postReq(routePathParts, request, that.DataManager, that.config);
+
+                        case 'PUT':
+                            return await putReq(routePathParts, request, that.DataManager, that.config);
+
+                        case 'PATCH':
+                            return await patchReq(routePathParts, request, that.DataManager, that.config);
+
+                        case 'DELETE':
+                            return await deleteReq(routePathParts, request, that.DataManager, that.config);
 
                         default:
-                            return new Response('Request Method Not Found', { status: 404 });
+                            return new Response('Request Method Not Found', { status: 405, headers: {
+                                'Allow': 'GET, POST, PUT, PATCH, DELETE'
+                            }});
                     }
                 } catch (error) {
                     console.error(setColor('Error processing request:', 'red'), error);
@@ -225,7 +282,9 @@ export class Server {
 
     // Graceful shutdown
     async stop() {
-        console.log(setColor('\n🛑 Initiating graceful shutdown...', 'yellow'));
+        if (this.config.logging) {
+            console.log(setColor('\n🛑 Initiating graceful shutdown...', 'yellow'));
+        }
         this.isShuttingDown = true;
 
         // Stop accepting new connections
@@ -233,22 +292,26 @@ export class Server {
             this.server.stop();
         }
 
-        // Wait for in-flight requests to complete (with timeout)
-        const maxWaitTime = 30000; // 30 seconds
+        // Wait for in-flight requests to complete (with configurable timeout)
+        const maxWaitTime = this.config.timeout.shutdown!;
         const startTime = Date.now();
 
         while (this.inflightRequests > 0 && Date.now() - startTime < maxWaitTime) {
-            console.log(setColor(`⏳ Waiting for ${this.inflightRequests} in-flight requests...`, 'yellow'));
+            if (this.config.logging) {
+                console.log(setColor(`⏳ Waiting for ${this.inflightRequests} in-flight requests...`, 'yellow'));
+            }
             await new Promise(resolve => setTimeout(resolve, 100));
         }
 
-        if (this.inflightRequests > 0) {
+        if (this.inflightRequests > 0 && this.config.logging) {
             console.log(setColor(`⚠ Shutdown timeout - ${this.inflightRequests} requests still in-flight`, 'yellow'));
         }
 
         // Flush any pending database writes
         await this.DataManager.saveDataBase();
 
-        console.log(setColor('✓ Server stopped gracefully', 'green'));
+        if (this.config.logging) {
+            console.log(setColor('✓ Server stopped gracefully', 'green'));
+        }
     }
 }

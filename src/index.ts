@@ -18,6 +18,8 @@ import { DataManager } from './database/DataManager';
 import { Server } from './server/server';
 import path from 'path';
 import { setColor } from './helpers/colors';
+import type { NanoWarpConfig } from './types/config';
+import { mergeConfig } from './types/config';
 
 /**
  * Main NanoWarp server class
@@ -42,6 +44,11 @@ export class NanoWarp {
     public readonly DataPath: string;
 
     /**
+     * Server configuration
+     */
+    public readonly config: Required<NanoWarpConfig>;
+
+    /**
      * Flag to prevent duplicate shutdown handler registration
      */
     private shutdownHandlersRegistered = false;
@@ -49,25 +56,59 @@ export class NanoWarp {
     /**
      * Create a new NanoWarp server instance
      *
-     * @param port - Port number for the HTTP server (default: 3000)
-     * @param dataPath - Path to the data directory (default: './data')
+     * @param portOrConfig - Port number (legacy) or full configuration object
+     * @param dataPath - Path to the data directory (legacy, only used if first param is number)
      *
      * @example
      * ```typescript
      * // Default configuration (port 3000, ./data)
      * const server = new NanoWarp();
      *
-     * // Custom port
+     * // Legacy: Custom port
      * const server = new NanoWarp(8080);
      *
-     * // Custom port and data directory
+     * // Legacy: Custom port and data directory
      * const server = new NanoWarp(8080, './my-data');
+     *
+     * // New: Configuration object
+     * const server = new NanoWarp({
+     *   port: 8080,
+     *   dataPath: './my-data',
+     *   rateLimit: {
+     *     maxTokens: 200,
+     *     perEndpoint: {
+     *       '/auth/login': { maxTokens: 5, refillRate: 1 }
+     *     }
+     *   },
+     *   cache: {
+     *     apiKeyTTL: 120000
+     *   },
+     *   openapi: {
+     *     enabled: true,
+     *     info: {
+     *       title: 'My API',
+     *       version: '2.0.0'
+     *     }
+     *   }
+     * });
      * ```
      */
-    constructor(port = 3000, dataPath = './data') {
-        this.DataPath = path.resolve(dataPath);
+    constructor(portOrConfig?: number | NanoWarpConfig, dataPath?: string) {
+        // Handle both legacy (port, dataPath) and new (config object) constructor signatures
+        if (typeof portOrConfig === 'number') {
+            // Legacy constructor: NanoWarp(port, dataPath)
+            this.config = mergeConfig({
+                port: portOrConfig,
+                dataPath: dataPath,
+            });
+        } else {
+            // New constructor: NanoWarp(config)
+            this.config = mergeConfig(portOrConfig);
+        }
+
+        this.DataPath = path.resolve(this.config.dataPath);
         this.Database = new DataManager(this.DataPath);
-        this.APIServer = new Server(this.Database, port);
+        this.APIServer = new Server(this.Database, this.config);
     }
 
     /**
@@ -156,3 +197,6 @@ export class NanoWarp {
         });
     }
 }
+
+// Export types for user consumption
+export type { NanoWarpConfig, RateLimitConfig, CacheConfig, TimeoutConfig, OpenAPIConfig } from './types/config';

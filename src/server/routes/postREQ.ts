@@ -1,4 +1,5 @@
 import type { DataManager } from "../../database/DataManager";
+import type { NanoWarpConfig } from "../../types/config";
 import { setColor } from "../../helpers/colors";
 import { watch } from "fs";
 
@@ -7,7 +8,7 @@ const moduleCache = new Map<string, any>();
 const moduleVersions = new Map<string, number>();
 const watchers = new Map<string, any>();
 const moduleLastAccess = new Map<string, number>();
-const MAX_CACHE_SIZE = 100;
+let MAX_CACHE_SIZE = 100; // Will be set from config
 
 //Clear specific module from cache (for hot-reloading)
 function clearModuleCache(fullPath: string) {
@@ -72,11 +73,14 @@ export function clearAllModuleCache() {
     console.log(setColor('Module cache cleared', 'yellow'));
 }
 
-export const postReq = async (_pathMap: string[], _request: any, _Database: DataManager): Promise<Response> => {
+export const postReq = async (_pathMap: string[], _request: any, _Database: DataManager, _config: Required<NanoWarpConfig>): Promise<Response> => {
+
+    // Update cache size from config
+    MAX_CACHE_SIZE = _config.cache.moduleCacheSize!;
 
     //Execute Endpoint
     let path = _pathMap.map(String).join('/');
-    return await execute(path, _request, _Database.DataTree.RootDirectory, _Database);
+    return await execute(path, _request, _Database.DataTree.RootDirectory, _Database, _config);
 }
 
 //Timeout helper
@@ -87,7 +91,7 @@ function timeout(ms: number): Promise<never> {
 }
 
 //Execute Endpoint Function with Error Boundaries
-const execute = async (_path: string, _request: any, _dataPath: string, _Database: DataManager) => {
+const execute = async (_path: string, _request: any, _dataPath: string, _Database: DataManager, _config: Required<NanoWarpConfig>) => {
     const fullPath = `${_dataPath}/Endpoints/POST/${_path}`;
 
     try {
@@ -125,30 +129,36 @@ const execute = async (_path: string, _request: any, _dataPath: string, _Databas
 
         const module = moduleCache.get(fullPath);
 
-        // Execute with timeout (30 seconds)
+        // Execute with configurable timeout
         const response = await Promise.race([
             module.execute(_path, _request, _Database),
-            timeout(30000)
+            timeout(_config.timeout.request!)
         ]);
 
-        let debugText = setColor('Executed:', 'orange') + ' ' + setColor('POST', 'blue') + ' "' + setColor(_path, 'cyan') + '"\n';
-        console.log(debugText);
+        if (_config.logging) {
+            let debugText = setColor('Executed:', 'orange') + ' ' + setColor('POST', 'blue') + ' "' + setColor(_path, 'cyan') + '"\n';
+            console.log(debugText);
+        }
         return response;
 
     } catch (error: any) {
         // Error boundary - log but don't crash server
         if (error.message === 'Request timeout') {
-            console.log(setColor(` ✗ Timeout: POST "${_path}"`, 'red'));
+            if (_config.logging) {
+                console.log(setColor(` ✗ Timeout: POST "${_path}"`, 'red'));
+            }
             return new Response('Request Timeout', { status: 504 });
         }
 
         // Module not found or execution error
-        let debugText = setColor(' Failed Request:', 'red') + ' ' + setColor('POST', 'blue') + ' "' + setColor(_path, 'cyan') + '"\n';
-        console.log(debugText);
+        if (_config.logging) {
+            let debugText = setColor(' Failed Request:', 'red') + ' ' + setColor('POST', 'blue') + ' "' + setColor(_path, 'cyan') + '"\n';
+            console.log(debugText);
 
-        // Log error details for debugging
-        if (error.stack) {
-            console.error(setColor('Error details:', 'red'), error.message);
+            // Log error details for debugging
+            if (error.stack) {
+                console.error(setColor('Error details:', 'red'), error.message);
+            }
         }
 
         return new Response('Request Not Found', { status: 404 });
