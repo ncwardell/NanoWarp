@@ -1,8 +1,8 @@
 /**
- * Simple GET endpoint example
+ * Simple ping endpoint
  *
- * URL: GET /hello
- * Returns: Plain text greeting
+ * URL: GET /ping
+ * Returns: Pong response
  */
 
 import type { EndpointRateLimitConfig, EndpointSchema } from 'nanowarp';
@@ -12,18 +12,18 @@ export const rateLimit: EndpointRateLimitConfig = {
     enabled: false,
 };
 
-// Simple OpenAPI schema
+// OpenAPI schema definition
 export const schema: EndpointSchema = {
-    summary: 'Hello world',
-    description: 'A simple greeting endpoint',
-    tags: ['examples'],
+    summary: 'Ping endpoint',
+    description: 'Simple endpoint to test if the server is responding',
+    tags: ['Utility'],
     responses: {
         '200': {
-            description: 'Greeting message',
+            description: 'Successful ping response',
             content: {
                 'text/plain': {
-                    schema: { type: 'string' },
-                    example: 'Hello from NanoWarp! 👋',
+                    schema: { type: 'string', example: 'pong' },
+                    example: 'pong',
                 },
             },
         },
@@ -31,8 +31,8 @@ export const schema: EndpointSchema = {
 };
 
 export const execute = async (path: string, request: Request, Database: any) => {
-    return new Response('Hello from NanoWarp! 👋', {
+    return new Response('pong', {
         status: 200,
-        headers: { 'Content-Type': 'text/plain' }
+        headers: { 'Content-Type': 'text/plain' },
     });
 };
