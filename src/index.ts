@@ -127,7 +127,8 @@ export class NanoWarp {
      * ```
      */
     async start(): Promise<void> {
-        await this.Database.initialize();
+        // Fast startup with lazy loading + background scan
+        await this.Database.initialize({ lazy: true, backgroundScan: true });
         await this.APIServer.start();
 
         // Register graceful shutdown handlers (only once)
