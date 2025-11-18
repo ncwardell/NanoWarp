@@ -21,6 +21,7 @@
     "example:node": "tsx examples/server.ts"
   },
   "files": [
+    "src",
     "dist",
     "README.md",
     "LICENSE"
