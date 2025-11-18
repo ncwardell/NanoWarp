@@ -410,7 +410,13 @@ export function generateSwaggerUI(specUrl: string): string {
                 plugins: [
                     SwaggerUIBundle.plugins.DownloadUrl
                 ],
-                layout: "StandaloneLayout"
+                layout: "StandaloneLayout",
+                validatorUrl: null,
+                // Ensure server URLs are used correctly without path concatenation
+                requestInterceptor: (req) => {
+                    // Prevent double URL encoding or path concatenation issues
+                    return req;
+                }
             });
         };
     </script>

@@ -127,7 +127,11 @@ const execute = async (_path: string, _request: any, _dataPath: string, _Databas
         ]);
 
         if (_config.logging) {
-            let debugText = setColor('Executed:', 'orange') + ' ' + setColor('GET', 'blue') + ' "' + setColor(_path, 'cyan') + '"\n';
+            // Extract query string from request URL
+            const url = new URL(_request.url);
+            const queryString = url.search;
+            const fullPath = _path + queryString;
+            let debugText = setColor('Executed:', 'orange') + ' ' + setColor('GET', 'blue') + ' "' + setColor(fullPath, 'cyan') + '"\n';
             console.log(debugText);
         }
         return response;

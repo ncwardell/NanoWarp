@@ -1,6 +1,6 @@
 {
   "name": "nanowarp",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Lightning-fast API framework with hot-swappable file-based endpoints (works with Bun and Node.js)",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
