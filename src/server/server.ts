@@ -92,6 +92,8 @@ export class Server {
                 // Efficient path extraction using URL API
                 const url = new URL(request.url);
                 const path = url.pathname;
+                const queryString = url.search;
+                const fullPath = path + queryString;
 
                 // Track in-flight requests
                 this.inflightRequests++;
@@ -105,7 +107,7 @@ export class Server {
                     // Logging request details
                     if (this.config.logging) {
                         console.log(
-                            `${setColor('Request: ', 'green')}${setColor(request.method, 'blue')} "${setColor(path, 'cyan')}"`
+                            `${setColor('Request: ', 'green')}${setColor(request.method, 'blue')} "${setColor(fullPath, 'cyan')}"`
                         );
                     }
 
