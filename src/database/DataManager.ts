@@ -210,5 +210,84 @@ export class DataManager {
         await this.saveDataBase();
     }
 
+    /**
+     * Refresh a specific path in the directory tree (partial scan)
+     *
+     * This is much faster than scanDatabase() for updating specific directories.
+     * Scans only the specified path and updates both in-memory tree and database.lock
+     *
+     * @param relativePath - Path relative to root (e.g., "ClientData" or "ClientData/client123")
+     * @returns The refreshed DirectoryEntry, or null if path doesn't exist
+     *
+     * @example
+     * ```typescript
+     * // Refresh only the ClientData directory
+     * await dataManager.refreshPath("ClientData");
+     *
+     * // Refresh a specific client
+     * await dataManager.refreshPath("ClientData/client123");
+     * ```
+     */
+    async refreshPath(relativePath: string): Promise<DirectoryEntry | null> {
+        try {
+            // Convert relative path to absolute
+            const absolutePath = relativePath.startsWith(this.DataTree.RootDirectory)
+                ? relativePath
+                : `${this.DataTree.RootDirectory}/${relativePath}`;
+
+            // Verify path exists
+            if (!(await fs.pathExists(absolutePath))) {
+                console.log(setColor(` ➛ Refresh failed: Path does not exist (${absolutePath})`, 'red'));
+                return null;
+            }
+
+            // Scan the subtree
+            console.log(setColor(` • Refreshing path: ${relativePath}`, 'yellow'));
+            const freshEntry = await this.DataTree.DirectoryList.buildDirectoryMap(absolutePath);
+
+            // Navigate to the parent in the tree and update
+            const pathParts = relativePath.split('/').filter(Boolean);
+
+            if (pathParts.length === 0) {
+                // Refreshing root
+                this.DataTree.DirectoryList.EntryList = freshEntry;
+            } else {
+                // Navigate to parent
+                let current = this.DataTree.DirectoryList.EntryList;
+
+                for (let i = 0; i < pathParts.length - 1; i++) {
+                    if (!current.Descendants) {
+                        console.log(setColor(` ➛ Refresh failed: Parent directory not found in tree`, 'red'));
+                        return null;
+                    }
+                    const next = current.Descendants.get(pathParts[i]);
+                    if (!next) {
+                        console.log(setColor(` ➛ Refresh failed: Path segment "${pathParts[i]}" not found`, 'red'));
+                        return null;
+                    }
+                    current = next;
+                }
+
+                // Update the entry in parent's Descendants
+                if (current.Descendants) {
+                    const targetName = pathParts[pathParts.length - 1];
+                    current.Descendants.set(targetName, freshEntry);
+                } else {
+                    console.log(setColor(` ➛ Refresh failed: Parent is not a directory`, 'red'));
+                    return null;
+                }
+            }
+
+            // Save updated tree to database.lock
+            await this.saveDataBase();
+            console.log(setColor(` ➛ Path refreshed and saved (${relativePath})`, 'green'));
+
+            return freshEntry;
+        } catch (error) {
+            console.log(setColor(` ➛ Refresh failed: ${error}`, 'red'));
+            return null;
+        }
+    }
+
 }
 
