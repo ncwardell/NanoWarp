@@ -200,6 +200,10 @@ export class NanoWarp {
 
 // Export types for user consumption
 export type { NanoWarpConfig, EndpointRateLimitConfig, EndpointSchema, CacheConfig, TimeoutConfig, OpenAPIConfig } from './types/config';
+export type { DirectoryEntry } from './database/DirectoryList';
 
 // Export DataManager for schema helpers in endpoints
 export { DataManager } from './database/DataManager';
+
+// Export helper functions
+export { setColor } from './helpers/colors';
