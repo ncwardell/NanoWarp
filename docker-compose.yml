@@ -1,0 +1,42 @@
+services:
+  nanowarp:
+    # Pull the published image from Docker Hub:
+    image: ncwardell/nanowarp:latest
+    # Or build locally from this repo:
+    # build: .
+    container_name: nanowarp
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      # Your Endpoints/ tree + user data live here.
+      # Layout under ./data:
+      #   ./data/Endpoints/GET/health.ts   → GET /health
+      #   ./data/Endpoints/POST/items.ts   → POST /items
+      #   ./data/apikeys.json              (optional auth config)
+      #   ./data/data.db                   (auto-created if DB_BACKEND=sqlite)
+      - ./data:/data
+    environment:
+      PORT: "3000"
+      DATA_PATH: /data
+
+      # Database backend: 'filesystem' (default) or 'sqlite'.
+      # Endpoint code is unchanged either way.
+      DB_BACKEND: filesystem
+      # SQLITE_PATH: /data/data.db        # only honored when DB_BACKEND=sqlite
+
+      # OpenAPI / Swagger UI
+      OPENAPI_ENABLED: "false"
+      # OPENAPI_UI_PATH: /docs
+      # OPENAPI_SPEC_PATH: /openapi.json
+      # OPENAPI_TITLE: My API
+      # OPENAPI_VERSION: 1.0.0
+      # OPENAPI_DESCRIPTION: Description of my API
+
+      # Performance / lifecycle (defaults shown)
+      # API_KEY_TTL: "60000"
+      # MODULE_CACHE_SIZE: "100"
+      # REQUEST_TIMEOUT: "30000"
+      # SHUTDOWN_TIMEOUT: "30000"
+
+      LOGGING: "true"
+    restart: unless-stopped

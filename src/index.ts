@@ -20,6 +20,10 @@ import path from 'path';
 import { setColor } from './helpers/colors';
 import type { NanoWarpConfig } from './types/config';
 import { mergeConfig } from './types/config';
+import type { DataStore } from './database/stores/DataStore';
+import { FilesystemStore } from './database/stores/FilesystemStore';
+import { SqliteStore } from './database/stores/SqliteStore';
+import { PostgresStore } from './database/stores/PostgresStore';
 
 /**
  * Main NanoWarp server class
@@ -107,7 +111,8 @@ export class NanoWarp {
         }
 
         this.DataPath = path.resolve(this.config.dataPath);
-        this.Database = new DataManager(this.DataPath);
+        const store = createStore(this.config, this.DataPath);
+        this.Database = new DataManager(this.DataPath, undefined, store);
         this.APIServer = new Server(this.Database, this.config);
     }
 
@@ -200,11 +205,79 @@ export class NanoWarp {
 }
 
 // Export types for user consumption
-export type { NanoWarpConfig, EndpointRateLimitConfig, EndpointSchema, CacheConfig, TimeoutConfig, OpenAPIConfig } from './types/config';
+export type {
+    NanoWarpConfig,
+    EndpointRateLimitConfig,
+    EndpointSchema,
+    CacheConfig,
+    TimeoutConfig,
+    OpenAPIConfig,
+    DatabaseConfig,
+    CorsConfig,
+    MiddlewareConfig,
+    BeforeHandler,
+    AfterHandler,
+    MetricsConfig,
+    BodyLimitConfig,
+} from './types/config';
 export type { DirectoryEntry } from './database/DirectoryList';
+export type { DataStore } from './database/stores/DataStore';
 
 // Export DataManager for schema helpers in endpoints
 export { DataManager } from './database/DataManager';
 
+// Export store implementations for advanced users (custom backends)
+export { FilesystemStore } from './database/stores/FilesystemStore';
+export { SqliteStore } from './database/stores/SqliteStore';
+export { PostgresStore } from './database/stores/PostgresStore';
+export type { PostgresStoreOptions } from './database/stores/PostgresStore';
+
+// Migration utilities for moving user data between backends
+export { migrate, DEFAULT_SKIP_PATTERNS } from './database/migrate';
+export type { MigrateOptions, MigrateResult } from './database/migrate';
+
+// JWT auth recipe (HS256 — for symmetric secret-based auth)
+export { jwt, getJwtPayload, signHS256 } from './auth/jwt';
+export type { JwtOptions, JwtPayload } from './auth/jwt';
+
 // Export helper functions
 export { setColor } from './helpers/colors';
+
+/**
+ * Construct the DataStore that backs DataManager based on user config.
+ *
+ * Default: filesystem (matches historical behavior). Switching to sqlite is
+ * a one-line config change; endpoint code is unchanged.
+ */
+function createStore(
+    config: {
+        dataPath: string;
+        database: {
+            backend?: 'filesystem' | 'sqlite' | 'postgres';
+            sqlite?: { path?: string };
+            postgres?: { connectionString?: string; tableName?: string };
+        };
+    },
+    resolvedDataPath: string,
+): DataStore {
+    const backend = config.database.backend ?? 'filesystem';
+    if (backend === 'sqlite') {
+        const dbPath = config.database.sqlite?.path
+            ? path.resolve(config.database.sqlite.path)
+            : path.join(resolvedDataPath, 'data.db');
+        return new SqliteStore(dbPath);
+    }
+    if (backend === 'postgres') {
+        const cs = config.database.postgres?.connectionString;
+        if (!cs) {
+            throw new Error(
+                "database.backend === 'postgres' requires database.postgres.connectionString",
+            );
+        }
+        return new PostgresStore({
+            connectionString: cs,
+            tableName: config.database.postgres?.tableName,
+        });
+    }
+    return new FilesystemStore();
+}

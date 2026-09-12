@@ -1,11 +1,12 @@
 //Imports
 import fs from 'fs-extra';
-import { readdir } from "node:fs/promises";
 import { setColor } from '../helpers/colors';
 import { DirectoryList } from './DirectoryList';
 import type { DirectoryEntry } from './DirectoryList';
 import { replacer, reviver } from '../helpers/mappingString';
-import { writeFileRuntime, readJsonFile, readFileAsArrayBuffer, fileExists } from '../runtime/file';
+import { writeFileRuntime, readJsonFile, fileExists } from '../runtime/file';
+import type { DataStore } from './stores/DataStore';
+import { FilesystemStore } from './stores/FilesystemStore';
 
 //Used To Manage The Storage of the DataManager
 class ManagedStorage {
@@ -40,20 +41,21 @@ export class DataManager {
     //Total Database Storage
     DataTree: ManagedStorage;
 
-    //File write locks for atomic operations
-    private writeLocks = new Map<string, Promise<boolean>>();
+    //Pluggable backend for endpoint data ops (filesystem by default)
+    private store: DataStore;
 
     //Background scan status
     private isBackgroundScanning: boolean = false;
     private backgroundScanProgress: { current: number; total: number } = { current: 0, total: 0 };
 
     //Constructs The Object
-    constructor(_rootFolder: string, _directoryEntry?: DirectoryEntry) {
+    constructor(_rootFolder: string, _directoryEntry?: DirectoryEntry, _store?: DataStore) {
         if (_directoryEntry === undefined) {
             this.DataTree = new ManagedStorage(_rootFolder, _rootFolder + '/database.lock', new DirectoryList(_rootFolder));
         } else {
             this.DataTree = new ManagedStorage(_rootFolder, _rootFolder + '/database.lock', new DirectoryList(_rootFolder, _directoryEntry));
         }
+        this.store = _store ?? new FilesystemStore();
     };
 
     /**
@@ -103,6 +105,8 @@ export class DataManager {
     async initialize(options?: { lazy?: boolean; backgroundScan?: boolean }) {
         //Makes Sure Root Directory and database.lock File Exists
         await this.DataTree.Initialize();
+        //Initialize the backing data store (e.g., open SQLite, create schema)
+        await this.store.initialize?.();
         //Loads & Reads The Database File
         let databaseFile = await readJsonFile(this.DataTree.DataBaseFile);
         //If Database File is Not Empty
@@ -128,78 +132,23 @@ export class DataManager {
     };
 
     async retrieveData(_path: string) {
-        console.log(setColor(' • Retrieving Data', 'yellow'));
-        if (await fs.pathExists(_path) == true) {
-            const stats = await fs.stat(_path);
-            if (stats.isDirectory()) {
-                console.log(setColor(` ➛ Returning Directory List (${_path})`, 'orange'));
-                return await readdir(_path);
-            } else if ((_path.endsWith('.json')) || (_path.endsWith('.lock'))) {
-                console.log(setColor(` ➛ Returning JSON (${_path})`, 'orange'));
-                return await readJsonFile(_path);
-            } else {
-                console.log(setColor(` ➛ Returning File (${_path})`, 'orange'));
-                return await readFileAsArrayBuffer(_path);
-            }
-        } else {
-            console.log(setColor(` ➛ Retrieving Data Failed (${_path})`, 'red'));
-            return false;
-        }
+        return this.store.retrieveData(_path);
     };
 
     async deleteData(_path: string) {
-        console.log(setColor(' • Deleting Data', 'yellow'));
-        if (await fs.pathExists(_path) == true) {
-            await fs.remove(_path);
-            console.log(setColor(` ➛ Data Deleted (${_path})`, 'orange'));
-            return true;
-        } else {
-            console.log(setColor(` ➛ Deleting Data Failed (${_path})`, 'red'));
-            return false;
-        }
+        return this.store.deleteData(_path);
     }
 
     async saveData(_path: string, _data: any) {
-        console.log(setColor(' • Saving Data', 'yellow'));
-
-        // Wait for any existing write to this file to complete
-        while (this.writeLocks.has(_path)) {
-            await this.writeLocks.get(_path);
-        }
-
-        // Atomic write using temp file then rename
-        const tempPath = `${_path}.tmp.${Date.now()}.${Math.random().toString(36).substr(2, 9)}`;
-
-        const writePromise = (async () => {
-            try {
-                // Write to temporary file
-                await writeFileRuntime(tempPath, _data);
-
-                // Atomic rename (POSIX guarantees atomicity)
-                await fs.rename(tempPath, _path);
-
-                console.log(setColor(` ➛ Data Saved (${_path})`, 'orange'));
-                return true;
-            } catch (error) {
-                // Clean up temp file if it exists
-                try {
-                    await fs.remove(tempPath);
-                } catch {}
-
-                console.log(setColor(` ➛ Data Save Failed (${_path})`, 'red'));
-                return false;
-            }
-        })();
-
-        // Lock this path
-        this.writeLocks.set(_path, writePromise);
-
-        try {
-            return await writePromise;
-        } finally {
-            this.writeLocks.delete(_path);
-        }
+        return this.store.saveData(_path, _data);
     };
+
+    /**
+     * Close the underlying data store. Called during graceful shutdown.
+     */
+    async close(): Promise<void> {
+        await this.store.close?.();
+    }
 
 
     async loadDataBase(_path: string) {
@@ -219,7 +168,17 @@ export class DataManager {
     }
 
     async saveDataBase() {
-        await this.saveData(this.DataTree.DataBaseFile, JSON.stringify(this.DataTree, replacer));
+        // database.lock is framework metadata — always write to the filesystem
+        // (atomically), regardless of which DataStore backend is in use.
+        const target = this.DataTree.DataBaseFile;
+        const tempPath = `${target}.tmp.${Date.now()}.${Math.random().toString(36).substr(2, 9)}`;
+        try {
+            await writeFileRuntime(tempPath, JSON.stringify(this.DataTree, replacer));
+            await fs.rename(tempPath, target);
+        } catch (error) {
+            try { await fs.remove(tempPath); } catch {}
+            throw error;
+        }
     }
 
     async scanDatabase(){

@@ -88,5 +88,7 @@ export function cleanupRateLimiter() {
     }
 }
 
-// Periodic cleanup every 5 minutes
-setInterval(cleanupRateLimiter, 5 * 60 * 1000);
+// Periodic cleanup every 5 minutes. .unref() so the timer doesn't keep the
+// event loop alive — tests and one-shot scripts exit cleanly.
+const cleanupTimer = setInterval(cleanupRateLimiter, 5 * 60 * 1000);
+if (typeof cleanupTimer.unref === 'function') cleanupTimer.unref();

@@ -184,6 +184,111 @@ export interface OpenAPIConfig {
 }
 
 /**
+ * CORS configuration.
+ *
+ * Off by default. Set `cors: true` for permissive defaults (`origin: '*'`),
+ * or pass an object for fine-grained control.
+ */
+export type CorsConfig = boolean | {
+    /** Allowed origin(s). String, list, predicate, or '*'. Default: '*' */
+    origin?: string | string[] | ((origin: string | null) => boolean);
+    /** Allowed methods. Default: GET, POST, PUT, PATCH, DELETE, OPTIONS */
+    methods?: string[];
+    /** Allowed request headers. Default: ['Content-Type', 'X-API-Key'] */
+    headers?: string[];
+    /** Headers exposed to the client. Default: [] */
+    exposeHeaders?: string[];
+    /** Send Access-Control-Allow-Credentials: true. Default: false */
+    credentials?: boolean;
+    /** Cache preflight for N seconds. Default: 600 */
+    maxAge?: number;
+};
+
+/**
+ * Middleware hooks. before-handlers run before routing; after-handlers run
+ * after the endpoint produces a response. Either may short-circuit by
+ * returning a Response.
+ */
+export type BeforeHandler = (request: Request) => Promise<Response | void> | Response | void;
+export type AfterHandler = (request: Request, response: Response) => Promise<Response | void> | Response | void;
+
+export interface MiddlewareConfig {
+    /** Functions to run before routing. Returning a Response short-circuits. */
+    before?: BeforeHandler[];
+    /** Functions to run after the endpoint. Returning a Response replaces the original. */
+    after?: AfterHandler[];
+}
+
+/**
+ * /metrics endpoint configuration. Off by default.
+ */
+export interface MetricsConfig {
+    /** Enable the metrics endpoint. Default: false */
+    enabled?: boolean;
+    /** Path the metrics endpoint is served at. Default: '/metrics' */
+    path?: string;
+}
+
+/**
+ * Request body size limit configuration.
+ *
+ * When set, requests with bodies exceeding the limit are rejected with 413.
+ * Default: unlimited (preserves existing behavior).
+ */
+export interface BodyLimitConfig {
+    /** Maximum request body size in bytes. Default: undefined (unlimited). */
+    maxBytes?: number;
+}
+
+/**
+ * Database backend configuration.
+ *
+ * NanoWarp's data store is pluggable behind the `Database.retrieveData`,
+ * `Database.saveData`, and `Database.deleteData` API. Endpoint code is
+ * unchanged regardless of which backend is selected.
+ */
+export interface DatabaseConfig {
+    /**
+     * Backend to use for endpoint data ops.
+     *
+     * - `filesystem` (default): files on disk; matches historical behavior.
+     * - `sqlite`: a single SQLite database file.
+     * - `postgres`: a Postgres database (requires `pg` to be installed).
+     *
+     * Endpoint code is identical regardless of which backend is selected.
+     *
+     * @default 'filesystem'
+     */
+    backend?: 'filesystem' | 'sqlite' | 'postgres';
+
+    /**
+     * SQLite-specific options (only used when backend === 'sqlite').
+     */
+    sqlite?: {
+        /**
+         * Path to the SQLite database file.
+         * @default `${dataPath}/data.db`
+         */
+        path?: string;
+    };
+
+    /**
+     * Postgres-specific options (only used when backend === 'postgres').
+     */
+    postgres?: {
+        /**
+         * Postgres connection string, e.g.
+         * `postgres://user:password@host:5432/dbname`
+         */
+        connectionString?: string;
+        /**
+         * Table to store the kv rows in. Default: 'nanowarp_kv'.
+         */
+        tableName?: string;
+    };
+}
+
+/**
  * Complete NanoWarp configuration
  */
 export interface NanoWarpConfig {
@@ -213,6 +318,32 @@ export interface NanoWarpConfig {
      * OpenAPI/Swagger configuration
      */
     openapi?: OpenAPIConfig;
+
+    /**
+     * Database backend configuration.
+     */
+    database?: DatabaseConfig;
+
+    /**
+     * CORS configuration. Off by default — set to `true` for permissive
+     * defaults or an object for fine-grained control.
+     */
+    cors?: CorsConfig;
+
+    /**
+     * Global middleware hooks (run for every request).
+     */
+    middleware?: MiddlewareConfig;
+
+    /**
+     * Built-in /metrics endpoint. Off by default.
+     */
+    metrics?: MetricsConfig;
+
+    /**
+     * Request body size limit. Default: unlimited.
+     */
+    bodyLimit?: BodyLimitConfig;
 
     /**
      * Enable or disable request logging
@@ -246,6 +377,15 @@ export const DEFAULT_CONFIG: Required<NanoWarpConfig> = {
         },
         servers: [],
     },
+    database: {
+        backend: 'filesystem',
+        sqlite: {},
+        postgres: {},
+    },
+    cors: false,
+    middleware: { before: [], after: [] },
+    metrics: { enabled: false, path: '/metrics' },
+    bodyLimit: {},
     logging: true,
 };
 
@@ -278,6 +418,28 @@ export function mergeConfig(userConfig?: NanoWarpConfig): Required<NanoWarpConfi
                 license: userConfig.openapi?.info?.license ?? DEFAULT_CONFIG.openapi.info!.license,
             },
             servers: userConfig.openapi?.servers ?? DEFAULT_CONFIG.openapi.servers,
+        },
+        database: {
+            backend: userConfig.database?.backend ?? DEFAULT_CONFIG.database.backend,
+            sqlite: {
+                path: userConfig.database?.sqlite?.path ?? DEFAULT_CONFIG.database.sqlite?.path,
+            },
+            postgres: {
+                connectionString: userConfig.database?.postgres?.connectionString,
+                tableName: userConfig.database?.postgres?.tableName,
+            },
+        },
+        cors: userConfig.cors ?? DEFAULT_CONFIG.cors,
+        middleware: {
+            before: userConfig.middleware?.before ?? [],
+            after: userConfig.middleware?.after ?? [],
+        },
+        metrics: {
+            enabled: userConfig.metrics?.enabled ?? DEFAULT_CONFIG.metrics.enabled,
+            path: userConfig.metrics?.path ?? DEFAULT_CONFIG.metrics.path,
+        },
+        bodyLimit: {
+            maxBytes: userConfig.bodyLimit?.maxBytes,
         },
         logging: userConfig.logging ?? DEFAULT_CONFIG.logging,
     };

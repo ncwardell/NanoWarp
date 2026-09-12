@@ -7,8 +7,10 @@ import { setColor } from '../helpers/colors';
 import { DataManager } from "../database/DataManager";
 import { createServer, type ServerInstance } from '../runtime/server';
 import { fileExists, readJsonFile } from '../runtime/file';
-import type { NanoWarpConfig } from '../types/config';
+import type { NanoWarpConfig, BeforeHandler, AfterHandler } from '../types/config';
 import { generateOpenAPISpec, generateSwaggerUI } from '../openapi/generator';
+import { corsMiddleware } from './cors';
+import { Metrics } from './metrics';
 
 // Server Class
 export class Server {
@@ -24,6 +26,18 @@ export class Server {
         whitelist: string[];
         lastLoaded: number;
     } | null = null;
+
+    // Cached OpenAPI spec — regenerated on a TTL to avoid re-importing every
+    // endpoint module on each /openapi.json hit.
+    private openapiCache: { spec: any; lastBuilt: number } | null = null;
+    private static readonly OPENAPI_CACHE_TTL_MS = 60_000;
+
+    // Compiled middleware chains (built once at start()).
+    private beforeChain: BeforeHandler[] = [];
+    private afterChain: AfterHandler[] = [];
+
+    // Metrics (only populated when config.metrics.enabled).
+    private metrics: Metrics | null = null;
 
     // Graceful shutdown
     private server: ServerInstance | null = null;
@@ -79,10 +93,43 @@ export class Server {
         console.log(setColor('API key cache cleared', 'yellow'));
     }
 
+    /**
+     * Generate (or return cached) OpenAPI spec.
+     * @private
+     */
+    private async getOpenAPISpec(host: string | undefined): Promise<any> {
+        const now = Date.now();
+        if (this.openapiCache && now - this.openapiCache.lastBuilt < Server.OPENAPI_CACHE_TTL_MS) {
+            return this.openapiCache.spec;
+        }
+        const spec = await generateOpenAPISpec(
+            this.DataManager.DataTree.RootDirectory,
+            this.config,
+            host ? `http://${host}` : undefined
+        );
+        this.openapiCache = { spec, lastBuilt: now };
+        return spec;
+    }
+
     async start() {
         let that = this;
+
+        // Build middleware chain. CORS (when enabled) prepends to before; the
+        // matching response-header pass appends to after.
+        const userBefore = this.config.middleware?.before ?? [];
+        const userAfter = this.config.middleware?.after ?? [];
+        const cors = corsMiddleware(this.config.cors);
+        this.beforeChain = cors ? [cors.before, ...userBefore] : [...userBefore];
+        this.afterChain = cors ? [...userAfter, cors.after] : [...userAfter];
+
+        // Metrics
+        if (this.config.metrics?.enabled) {
+            this.metrics = new Metrics();
+        }
+
         this.server = createServer({
             port: this.Port,
+            maxBodyBytes: this.config.bodyLimit?.maxBytes,
             fetch: async (request) => {
                 // Reject new requests during shutdown
                 if (this.isShuttingDown) {
@@ -97,113 +144,123 @@ export class Server {
 
                 // Track in-flight requests
                 this.inflightRequests++;
+                let response: Response;
 
                 try {
-                    function pathMap(p: string) {
-                        return p.split('/').filter(part => part !== '');
-                    }
-                    const pathParts = pathMap(path);
+                    response = await this.handleRequest(request, path, fullPath);
 
-                    // Logging request details
-                    if (this.config.logging) {
-                        console.log(
-                            `${setColor('Request: ', 'green')}${setColor(request.method, 'blue')} "${setColor(fullPath, 'cyan')}"`
-                        );
-                    }
-
-                    await this.getAPIKeys();
-
-                    // API key check only if keys are defined and path is not whitelisted
-                    if (Object.keys(this.Keys).length > 0 && !this.Whitelist.includes(path)) {
-                        const apiKey = request.headers.get('X-API-Key');
-                        if (!apiKey || !this.Keys.hasOwnProperty(apiKey)) {
-                            console.log(setColor('Unauthorized: Invalid or missing API key', 'red'));
-                            return new Response('Unauthorized: Invalid or missing API key', { status: 401 });
-                        }
-                        const expirationDateStr = this.Keys[apiKey];
-                        const expirationDate = new Date(expirationDateStr);
-                        if (isNaN(expirationDate.getTime())) {
-                            console.log(setColor('Invalid expiration date for API key', 'red'));
-                            return new Response('Internal Server Error', { status: 500 });
-                        }
-                        const currentDate = new Date();
-                        if (currentDate > expirationDate) {
-                            console.log(setColor('Unauthorized: API key expired', 'red'));
-                            return new Response('Unauthorized: API key expired', { status: 401 });
-                        }
-                    }
-
-                    // Handle OpenAPI/Swagger routes (if enabled)
-                    if (this.config.openapi.enabled) {
-                        // Serve OpenAPI JSON spec
-                        if (path === this.config.openapi.specPath!) {
-                            try {
-                                const spec = await generateOpenAPISpec(
-                                    this.DataManager.DataTree.RootDirectory,
-                                    this.config,
-                                    request.headers.get('host') ? `http://${request.headers.get('host')}` : undefined
-                                );
-                                return new Response(JSON.stringify(spec, null, 2), {
-                                    status: 200,
-                                    headers: { 'Content-Type': 'application/json' }
-                                });
-                            } catch (error) {
-                                console.error(setColor('Error generating OpenAPI spec:', 'red'), error);
-                                return new Response('Error generating OpenAPI specification', { status: 500 });
-                            }
-                        }
-
-                        // Serve Swagger UI HTML
-                        if (path === this.config.openapi.uiPath) {
-                            const html = generateSwaggerUI(this.config.openapi.specPath!);
-                            return new Response(html, {
-                                status: 200,
-                                headers: { 'Content-Type': 'text/html' }
-                            });
-                        }
-                    }
-
-                    // Handle empty paths
-                    if (pathParts.length === 0) {
-                        return new Response('Invalid Path', { status: 400 });
-                    }
-
-                    // Route requests
-                    const routePathParts = pathParts[0] === 'api' ? pathParts.slice(1) : pathParts;
-
-                    switch (request.method) {
-                        case 'GET':
-                            return await getReq(routePathParts, request, that.DataManager, that.config);
-
-                        case 'POST':
-                            return await postReq(routePathParts, request, that.DataManager, that.config);
-
-                        case 'PUT':
-                            return await putReq(routePathParts, request, that.DataManager, that.config);
-
-                        case 'PATCH':
-                            return await patchReq(routePathParts, request, that.DataManager, that.config);
-
-                        case 'DELETE':
-                            return await deleteReq(routePathParts, request, that.DataManager, that.config);
-
-                        default:
-                            return new Response('Request Method Not Found', { status: 405, headers: {
-                                'Allow': 'GET, POST, PUT, PATCH, DELETE'
-                            }});
+                    // Run after-middleware
+                    for (const fn of this.afterChain) {
+                        const result = await fn(request, response);
+                        if (result instanceof Response) response = result;
                     }
                 } catch (error) {
                     console.error(setColor('Error processing request:', 'red'), error);
-                    return new Response('Internal Server Error', { status: 500 });
+                    response = new Response('Internal Server Error', { status: 500 });
                 } finally {
-                    // Decrement in-flight request counter
                     this.inflightRequests--;
                 }
+
+                this.metrics?.record(request.method, response.status);
+                return response;
             },
         });
 
         console.log(setColor('API listening on port ' + this.Port, 'yellow'));
         console.log('--------------------------' + '\n');
+    }
+
+    /**
+     * Inner request pipeline: before-middleware → logging → auth → built-in
+     * routes (OpenAPI, /metrics) → endpoint dispatch.
+     *
+     * @private
+     */
+    private async handleRequest(request: Request, path: string, fullPath: string): Promise<Response> {
+        // Before-middleware (CORS preflight lives here — must run before auth).
+        for (const fn of this.beforeChain) {
+            const result = await fn(request);
+            if (result instanceof Response) return result;
+        }
+
+        if (this.config.logging) {
+            console.log(
+                `${setColor('Request: ', 'green')}${setColor(request.method, 'blue')} "${setColor(fullPath, 'cyan')}"`
+            );
+        }
+
+        await this.getAPIKeys();
+
+        // API key check only if keys are defined and path is not whitelisted.
+        if (Object.keys(this.Keys).length > 0 && !this.Whitelist.includes(path)) {
+            const apiKey = request.headers.get('X-API-Key');
+            if (!apiKey || !this.Keys.hasOwnProperty(apiKey)) {
+                console.log(setColor('Unauthorized: Invalid or missing API key', 'red'));
+                return new Response('Unauthorized: Invalid or missing API key', { status: 401 });
+            }
+            const expirationDateStr = this.Keys[apiKey];
+            const expirationDate = new Date(expirationDateStr);
+            if (isNaN(expirationDate.getTime())) {
+                console.log(setColor('Invalid expiration date for API key', 'red'));
+                return new Response('Internal Server Error', { status: 500 });
+            }
+            if (new Date() > expirationDate) {
+                console.log(setColor('Unauthorized: API key expired', 'red'));
+                return new Response('Unauthorized: API key expired', { status: 401 });
+            }
+        }
+
+        // Built-in /metrics endpoint.
+        if (this.metrics && path === this.config.metrics.path) {
+            const snapshot = this.metrics.snapshot(this.inflightRequests);
+            return new Response(JSON.stringify(snapshot, null, 2), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
+        // OpenAPI / Swagger UI.
+        if (this.config.openapi.enabled) {
+            if (path === this.config.openapi.specPath!) {
+                try {
+                    const spec = await this.getOpenAPISpec(request.headers.get('host') ?? undefined);
+                    return new Response(JSON.stringify(spec, null, 2), {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json' },
+                    });
+                } catch (error) {
+                    console.error(setColor('Error generating OpenAPI spec:', 'red'), error);
+                    return new Response('Error generating OpenAPI specification', { status: 500 });
+                }
+            }
+            if (path === this.config.openapi.uiPath) {
+                const html = generateSwaggerUI(this.config.openapi.specPath!);
+                return new Response(html, {
+                    status: 200,
+                    headers: { 'Content-Type': 'text/html' },
+                });
+            }
+        }
+
+        const pathParts = path.split('/').filter(part => part !== '');
+        if (pathParts.length === 0) {
+            return new Response('Invalid Path', { status: 400 });
+        }
+
+        const routePathParts = pathParts[0] === 'api' ? pathParts.slice(1) : pathParts;
+
+        switch (request.method) {
+            case 'GET': return await getReq(routePathParts, request, this.DataManager, this.config);
+            case 'POST': return await postReq(routePathParts, request, this.DataManager, this.config);
+            case 'PUT': return await putReq(routePathParts, request, this.DataManager, this.config);
+            case 'PATCH': return await patchReq(routePathParts, request, this.DataManager, this.config);
+            case 'DELETE': return await deleteReq(routePathParts, request, this.DataManager, this.config);
+            default:
+                return new Response('Request Method Not Found', {
+                    status: 405,
+                    headers: { 'Allow': 'GET, POST, PUT, PATCH, DELETE' },
+                });
+        }
     }
 
     // Graceful shutdown

@@ -32,6 +32,13 @@ export interface ServerOptions {
      * @returns Web Standards Response object or Promise resolving to one
      */
     fetch: (request: Request) => Promise<Response> | Response;
+
+    /**
+     * Maximum request body size in bytes. When set, requests exceeding the
+     * limit are rejected with 413 Payload Too Large before invoking `fetch`.
+     * Default: undefined (unlimited).
+     */
+    maxBodyBytes?: number;
 }
 
 /**
@@ -74,10 +81,15 @@ export interface ServerInstance {
 export function createServer(options: ServerOptions): ServerInstance {
     if (isBun) {
         // @ts-ignore - Bun global
-        return Bun.serve({
+        const bunOpts: any = {
             port: options.port,
-            fetch: options.fetch
-        });
+            fetch: options.fetch,
+        };
+        if (options.maxBodyBytes !== undefined) {
+            bunOpts.maxRequestBodySize = options.maxBodyBytes;
+        }
+        // @ts-ignore - Bun global
+        return Bun.serve(bunOpts);
     } else {
         // Node.js implementation
         const server = http.createServer(async (req, res) => {
@@ -85,10 +97,25 @@ export function createServer(options: ServerOptions): ServerInstance {
                 // Convert Node.js request to Web Request
                 const url = `http://${req.headers.host || 'localhost'}${req.url || '/'}`;
 
-                // Collect request body
+                // Collect request body, enforcing size limit if configured.
                 const chunks: Buffer[] = [];
+                let bytesRead = 0;
+                let exceeded = false;
                 for await (const chunk of req) {
+                    bytesRead += chunk.length;
+                    if (options.maxBodyBytes !== undefined && bytesRead > options.maxBodyBytes) {
+                        exceeded = true;
+                        break;
+                    }
                     chunks.push(chunk);
+                }
+                if (exceeded) {
+                    res.statusCode = 413;
+                    res.setHeader('Content-Type', 'text/plain');
+                    res.end('Payload Too Large');
+                    // Drain the rest so the client sees the response
+                    req.resume();
+                    return;
                 }
                 const body = Buffer.concat(chunks);
 
